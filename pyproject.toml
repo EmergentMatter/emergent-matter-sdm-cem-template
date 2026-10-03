@@ -1,6 +1,6 @@
 [project]
 name = "emergent-matter-sdm-cem-template"
-version = "0.0.0"
+version = "1.0.0"
 description = "Template for a Software Defined Matter computational engineering model (CEM)."
 readme = "README.md"
 license = "Apache-2.0"
