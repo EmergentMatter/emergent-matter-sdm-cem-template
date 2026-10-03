@@ -1,0 +1,163 @@
+[project]
+name = "emergent-matter-sdm-cem-template"
+version = "0.0.0"
+description = "Template for a Software Defined Matter computational engineering model (CEM)."
+readme = "README.md"
+license = "Apache-2.0"
+authors = [{ name = "Emergent Matter" }]   # institutional, never a person -- STYLE.md
+keywords = [
+    "cem",
+    "computational-engineering-model",
+    "software-defined-matter",
+    "signed-distance-field",
+    "jax",
+    "parametric-design",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Manufacturing",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering",
+    "Typing :: Typed",
+]
+# Follows sdm-core, which is >=3.13. Declaring anything lower makes
+# `uv sync` fail in a clean clone with a resolution error that reads as
+# a uv problem rather than a version mismatch.
+requires-python = ">=3.13"
+dependencies = [
+    "emergent-matter-sdm-core>=1.0,<2",
+]
+
+[project.scripts]
+widget-build = "widget_sdf.sdm.cli:main"
+
+# Rename the repo slug in every URL below when this template is copied.
+[project.urls]
+Homepage = "https://github.com/EmergentMatter/emergent-matter-sdm-cem-template"
+Repository = "https://github.com/EmergentMatter/emergent-matter-sdm-cem-template"
+Issues = "https://github.com/EmergentMatter/emergent-matter-sdm-cem-template/issues"
+Changelog = "https://github.com/EmergentMatter/emergent-matter-sdm-cem-template/blob/main/CHANGELOG.md"
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "ruff>=0.16",
+    "mypy>=1.14",
+]
+
+# explicit = true is required: our package names must only ever resolve
+# from our own index, never fall through to public PyPI.
+[[tool.uv.index]]
+name = "em"
+url = "https://get.softwaredefinedmatter.com/simple"
+explicit = true
+
+[tool.uv.sources]
+emergent-matter-sdm-core = { index = "em" }
+# sdm-core depends on materials. tool.uv.sources routes only packages the
+# project requires, and an explicit index serves nothing else, so the
+# constraint below makes materials a requirement without declaring a
+# direct import.
+emergent-matter-sdm-materials = { index = "em" }
+
+[tool.uv]
+constraint-dependencies = [
+    "emergent-matter-sdm-materials>=1.0,<2",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/widget_sdf"]
+
+[tool.hatch.build]
+# An allowlist, so the sdist carries the package sources and the data files the
+# wheel ships, and nothing else: no tests, CI config, agent guidance or lock file
+# goes onto the public index.
+include = [
+    "src/widget_sdf/**/*.py",
+    "src/widget_sdf/py.typed",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["examples"]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers --strict-config"
+filterwarnings = ["error"]   # per-repo ignores are explicit entries
+
+# ── towncrier: turns changelog.d/ notes into CHANGELOG.md ─────────────────
+#
+# One fragment type per bump level the release workflow understands.
+# compute_bump.py recognizes major, minor, and patch, and exits 1 on
+# anything else, so a type added here has no meaning downstream.
+[tool.towncrier]
+directory = "changelog.d"          # where `uv run scripts/changeset.py` writes notes
+filename = "CHANGELOG.md"
+# Insert this marker into CHANGELOG.md once, above your existing history.
+# towncrier writes new release sections directly below it and never touches
+# anything beneath. Inserting it into a hand-written changelog without
+# disturbing prior entries is covered in
+# https://github.com/EmergentMatter/actions/blob/main/docs/onboarding.md
+start_string = "<!-- towncrier release notes start -->\n"
+title_format = "## {version} ({project_date})"
+underlines = ["-", "~", "^"]
+
+[[tool.towncrier.type]]
+directory = "major"
+name = "Major"
+showcontent = true
+
+[[tool.towncrier.type]]
+directory = "minor"
+name = "Minor"
+showcontent = true
+
+[[tool.towncrier.type]]
+directory = "patch"
+name = "Patch"
+showcontent = true
+
+# ── em-release: tells sync_version.py every place the version string lives ──
+#
+# One entry per "path:symbol" location, beyond `[project] version` itself
+# (that one is handled separately, by `uv version --bump` in the release
+# workflow; do not list it here).
+#
+# Every location you list gets written on every release. Anything you don't
+# list is never touched. That's deliberate, so a data/schema version that
+# is meant to move independently of the package version is safe just by
+# being left off this list. A worked example of a catalog version string
+# that *is* listed, because it is meant to track the package version in
+# lockstep, is in
+# https://github.com/EmergentMatter/actions/blob/main/docs/onboarding.md
+[tool.em-release]
+tier = "open"
+templates_version = "v1.15.0"
+version_files = [
+  "src/widget_sdf/__init__.py:__version__",
+]
+
+# ── mypy ────────────────────────────────────────────────────────────────
+[tool.mypy]
+python_version = "3.13"
+disallow_untyped_defs = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+
+# Per-module relaxation for JAX/bpy code, never project-wide:
+# [[tool.mypy.overrides]]
+# module = ["<package_name>.sdf_shapes", "<package_name>.sdf_ops"]
+# disallow_untyped_defs = false
+
+# List only the untyped deps this repo actually imports:
+# [[tool.mypy.overrides]]
+# module = ["jax.*", "bpy"]
+# ignore_missing_imports = true
