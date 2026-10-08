@@ -98,6 +98,32 @@ Then, in this order:
 
 ## The rules this template encodes
 
+### One Part per physical part; an Assembly places them
+
+A `Part` is one physically inseparable object: what comes off the printer,
+the machine or the shelf as one piece. It may hold several materials if it is
+made as one. Anything that can be separated (fastened, bonded, pressed in,
+dropped in place) is its own `Part`, and an `Assembly` places it; assemblies
+nest. The bushing is one piece, so this CEM emits one `Part`. For a product
+of several pieces, `write_assembly` in `sdm/assembly.py` writes
+`parts/<name>.sdm` per part plus `<name>.sdm`, with relative, sha256-pinned
+references, and `tests/test_assembly.py` is the pattern for checking it.
+
+### Top-down: every dimension has one owner, and here it is the CEM
+
+The `.sdm` is this CEM's output: reviewed, never edited, and never
+overridden in the file. A change goes into the CEM and the `.sdm` is
+regenerated. Each generated document records what produced it under
+`metadata.source` (see `source_metadata`). A parent CEM that composes child
+CEMs owns the dimensions they share (an air gap, a bolt circle, a shaft
+diameter) and passes them down; a child reads them and never redeclares
+them. sdm-core's Assembly params and instance overrides are for designs
+authored directly as `.sdm` with no CEM, so `write_assembly` writes neither.
+
+The full text and the reasons for both rules are on the docs hub's
+[concepts](https://github.com/EmergentMatter/emergent-matter-sdm/blob/main/docs/concepts.md)
+page.
+
 ### Derived values are `@property`. Never a field.
 
 `d_bore_radius` is `d_outer_radius - d_wall_thickness`. Write it down as a
