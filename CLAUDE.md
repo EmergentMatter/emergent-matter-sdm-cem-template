@@ -87,6 +87,28 @@ sign you know. `tests/test_build.py` is the pattern. It is cheap (JAX traces
 once per module) and it is the only thing that distinguishes "it built" from
 "it built the right thing".
 
+## How geometry is built
+
+Every CEM builds geometry the same way, so that any tool, and the next agent,
+can read any CEM's output:
+
+- **Shapes, from parameters.** Each material is an SDF tree of sdm-core's own
+  node types: primitives, 2D profiles extruded or revolved, sweeps, lofts,
+  repeats, mirrors, offsets, and the booleans. A hole is a cylinder whose
+  radius is a parameter. Never a primitive that exists only in this repo.
+- **No sampled grids for designed geometry.** No `raster_field`, and no
+  designing in a B-rep kernel and sampling the result. A grid is for measured
+  data (a scan), declared as such.
+- **One physical part per part file.** More than one part makes an
+  assembly: one part file each, placed by instances, nested sub-assemblies
+  where the hardware is nested. Bought parts are simple envelope shapes with
+  their mating features (bores, faces, bolt holes) and no internal detail.
+
+`scripts/check_geometry.py` checks all three on this CEM's part, or on any
+`.sdm` you pass it, and says why each rule exists; `tests/test_geometry_standard.py`
+makes a breach fail `pytest`. A genuine exception goes in the part's own
+`metadata.geometry_exceptions` with a reason, never in a comment or a chat.
+
 ## Adding a parameter: the full checklist
 
 Miss any step and the failure is silent:
