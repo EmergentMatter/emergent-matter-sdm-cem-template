@@ -62,6 +62,16 @@ parameters get "extracted" later by reading the tree: at which point the
 derived relationships are already lost, because a tree records `9.0`, not
 `outer_radius - wall_thickness`.
 
+## One file per physical part, and one owner per dimension
+
+Before writing geometry, list the physical pieces. Each separable piece is
+its own `Part` and its own file; never pack separate bodies into one Part's
+material regions. Place them with `write_assembly`. The CEM owns every
+dimension: change it here and regenerate, never edit or override a value in
+the `.sdm`. When this CEM composes other CEMs, it owns the dimensions they
+share and passes them down; a child never redeclares them. README's "One
+Part per physical part" and "Top-down" sections are the rules.
+
 ## Never store a derived value
 
 `d_bore_radius` is `@property`. So is anything computed from declared fields.
