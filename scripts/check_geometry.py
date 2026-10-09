@@ -28,6 +28,10 @@ The rules this enforces, and what breaks without each:
   * An assembly's references resolve, and a pinned ``content_hash`` matches
     the bytes on disk. A stale hash means the part changed after the assembly
     was written and the assembly no longer describes what is on disk.
+  * An assembly says how it goes together (``metadata.assembly_process``, see
+    docs/assembly-process.md): every instance installed once, in order, from a
+    direction. Without it nothing downstream can explode or sequence the
+    assembly, and the knowledge of how to build it lives nowhere.
 
 A real exception (a scanned surface, a print-in-place mechanism that is one
 part but several bodies) is declared in the part's own metadata with a reason,
@@ -126,8 +130,64 @@ def _check_assembly(path: Path, doc: dict, seen: set[Path]) -> None:
                 "" if actual == pinned else "the part changed after this assembly was written",
             )
         targets.append(target)
+    _check_process(doc, ids)
     for target in dict.fromkeys(targets):
         check_file(target, seen)
+
+
+def _check_process(doc: dict, ids: list) -> None:
+    """The assembly says how it goes together (docs/assembly-process.md)."""
+    meta = doc.get("metadata") or {}
+    proc = meta.get("assembly_process")
+    if proc is None:
+        reason = (meta.get("geometry_exceptions") or {}).get("assembly_process")
+        if reason:
+            check(True, "no build sequence, declared", reason)
+        else:
+            check(
+                False,
+                "says how it goes together (metadata.assembly_process)",
+                "missing: see docs/assembly-process.md",
+            )
+        return
+    problems = []
+    known = set(ids)
+    placed = dict.fromkeys(proc.get("base") or [], "base")
+    problems += [f"base names {i!r}, not an instance" for i in placed if i not in known]
+    mated = {str(m.get("child", "")).split(".")[0] for m in doc.get("mates") or []}
+    for n, step in enumerate(proc.get("steps") or []):
+        sid = step.get("id") or f"step {n + 1}"
+        for i in step.get("instances") or []:
+            if i not in known:
+                problems.append(f"{sid}: {i!r} is not an instance")
+            elif i in placed:
+                problems.append(f"{sid}: {i!r} already installed by {placed[i]!r}")
+            else:
+                placed[i] = sid
+        d = step.get("direction")
+        ok_dir = (
+            isinstance(d, list)
+            and len(d) == 3
+            and any(isinstance(v, (int, float)) and v for v in d)
+        )
+        if not ok_dir and not (d is None and set(step.get("instances") or []) <= mated):
+            problems.append(f"{sid}: no usable direction")
+        t = step.get("travel")
+        if t is not None and not (isinstance(t, (int, float)) and t > 0):
+            problems.append(f"{sid}: travel must be a positive number of mm")
+        r = step.get("rotate")
+        if r is not None and not (
+            isinstance(r, dict)
+            and isinstance(r.get("axis"), list)
+            and isinstance(r.get("angle_deg"), (int, float))
+        ):
+            problems.append(f"{sid}: rotate needs an axis and an angle_deg")
+    problems += [f"{i!r} is never installed and is not in base" for i in ids if i not in placed]
+    check(
+        not problems,
+        "says how it goes together (metadata.assembly_process)",
+        "; ".join(problems[:4]) + (" ..." if len(problems) > 4 else ""),
+    )
 
 
 def _check_part(path: Path, doc: dict) -> None:

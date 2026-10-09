@@ -103,10 +103,14 @@ can read any CEM's output:
   assembly: one part file each, placed by instances, nested sub-assemblies
   where the hardware is nested. Bought parts are simple envelope shapes with
   their mating features (bores, faces, bolt holes) and no internal detail.
+- **Assemblies say how they go together.** Every assembly carries its
+  build sequence in `metadata.assembly_process`: steps in order, each
+  installing some instances along a direction, with the tool. The format and
+  the reasons are in [`docs/assembly-process.md`](docs/assembly-process.md).
 
-`scripts/check_geometry.py` checks all three on this CEM's part, or on any
+`scripts/check_geometry.py` checks all of this on this CEM's part, or on any
 `.sdm` you pass it, and says why each rule exists; `tests/test_geometry_standard.py`
-makes a breach fail `pytest`. A genuine exception goes in the part's own
+makes a breach fail `pytest`. A genuine exception goes in the file's own
 `metadata.geometry_exceptions` with a reason, never in a comment or a chat.
 
 ## Adding a parameter: the full checklist
