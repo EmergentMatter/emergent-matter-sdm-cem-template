@@ -15,8 +15,9 @@ in many contexts, but within one assembly its way in is fixed.
 
 Each assembly describes only its own instances. A sub-assembly is built by
 its own process and installed into its parent as one unit, in a step of the
-parent. The viewer plays the sub-assembly's steps first, then the step that
-installs it.
+parent. A viewer plays one assembly at a time: its own steps, with its
+sub-assemblies arriving finished; the sub-assembly's own build is played by
+picking the sub-assembly.
 
 ## Build the tree the way the thing is built
 
@@ -91,13 +92,15 @@ prismatic mate already slides. State it explicitly whenever the two differ.
 - **Explode**: a slider moves each step's parts out along `-direction` by up to
   `travel`, later steps along the same direction further out, so a stack
   separates in order.
-- **Build sequence**: Previous / Next / Play. Parts not yet installed are
-  hidden; the current step's parts slide (and twist) in from their start;
-  the step's name, tool, fasteners and notes are shown.
+- **Build sequence**: Previous / Next / Play, for the assembly picked. Parts
+  not yet installed are hidden; the current step's parts slide (and twist)
+  in from their start; the step's name, tool, fasteners and notes are shown.
+
 ## What the checker refuses
 
 Instances listed out of build order, an instance id that does not exist, an
-instance installed twice, an instance never installed and not in `base`, a step with no usable `direction` (and no
+instance installed twice, an instance never installed and not in `base`, a
+step with no usable `direction` (and no
 mate to take one from), a `travel` that is not a positive number, a `rotate`
 without an axis and an angle. An assembly that genuinely has no meaningful
 sequence (a single fixed weldment, say) says so in
