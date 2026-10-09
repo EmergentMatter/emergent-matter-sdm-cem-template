@@ -28,6 +28,11 @@ The rules this enforces, and what breaks without each:
   * An assembly's references resolve, and a pinned ``content_hash`` matches
     the bytes on disk. A stale hash means the part changed after the assembly
     was written and the assembly no longer describes what is on disk.
+  * One file per physical part, reused. A part used in several places is
+    one file placed by several instances, so changing it changes it
+    everywhere. The same part saved under two names is two parts that
+    nothing ties together: a change to one silently misses the other, and
+    parts ordered from one may not fit where the other is used.
   * An assembly says how it goes together (``metadata.assembly_process``, see
     docs/assembly-process.md): every instance installed once, in order, from a
     direction, and listed in the file in that build order so the tree reads
@@ -134,6 +139,26 @@ def _check_assembly(path: Path, doc: dict, seen: set[Path]) -> None:
     _check_process(doc, ids)
     for target in dict.fromkeys(targets):
         check_file(target, seen)
+
+
+def _check_reuse(paths) -> None:
+    """No two files define the same thing (apart from name and metadata)."""
+    groups: dict[str, list[Path]] = {}
+    for path in paths:
+        try:
+            doc = json.loads(Path(path).read_text())
+        except (OSError, ValueError):
+            continue
+        body = {k: v for k, v in doc.items() if k not in ("name", "metadata")}
+        groups.setdefault(json.dumps(body, sort_keys=True), []).append(Path(path))
+    copies = [g for g in groups.values() if len(g) > 1]
+    print("\nreuse")
+    check(
+        not copies,
+        "each part is one file, reused by instances",
+        "; ".join(" = ".join(p.name for p in g) for g in copies)
+        + (": keep one file and point every instance at it" if copies else ""),
+    )
 
 
 def _check_process(doc: dict, ids: list) -> None:
@@ -341,6 +366,7 @@ def main(argv: list[str] | None = None) -> int:
     with tempfile.TemporaryDirectory() as tmp:
         for f in args.files or [_own_part_file(Path(tmp))]:
             check_file(f, seen)
+        _check_reuse(sorted(seen))
     print(f"\n{'All checks passed.' if not _failures else f'{_failures} check(s) failed.'}")
     return 1 if _failures else 0
 

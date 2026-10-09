@@ -103,6 +103,11 @@ can read any CEM's output:
   assembly: one part file each, placed by instances, nested sub-assemblies
   where the hardware is nested. Bought parts are simple envelope shapes with
   their mating features (bores, faces, bolt holes) and no internal detail.
+- **One file per physical part, reused.** A part used in several places is
+  one part file placed by several instances, never copied to a second file:
+  then a change to it reaches every place it is used, and the parts list
+  counts it right. A variant (a different length, say) is a different part,
+  with its own file or its own `param_overrides`.
 - **Assemblies are built the way the thing is built.** Group parts into
   sub-assemblies by build station (what is put together off the line and
   installed as a unit), list every assembly's instances in build order, and
