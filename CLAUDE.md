@@ -103,10 +103,13 @@ can read any CEM's output:
   assembly: one part file each, placed by instances, nested sub-assemblies
   where the hardware is nested. Bought parts are simple envelope shapes with
   their mating features (bores, faces, bolt holes) and no internal detail.
-- **Assemblies say how they go together.** Every assembly carries its
-  build sequence in `metadata.assembly_process`: steps in order, each
-  installing some instances along a direction, with the tool. The format and
-  the reasons are in [`docs/assembly-process.md`](docs/assembly-process.md).
+- **Assemblies are built the way the thing is built.** Group parts into
+  sub-assemblies by build station (what is put together off the line and
+  installed as a unit), list every assembly's instances in build order, and
+  carry the build sequence in `metadata.assembly_process`: steps in order,
+  each installing some instances along a direction, with the tool. Reading
+  the tree top to bottom should walk through the build. Format and reasons:
+  [`docs/assembly-process.md`](docs/assembly-process.md).
 
 `scripts/check_geometry.py` checks all of this on this CEM's part, or on any
 `.sdm` you pass it, and says why each rule exists; `tests/test_geometry_standard.py`

@@ -30,7 +30,8 @@ The rules this enforces, and what breaks without each:
     was written and the assembly no longer describes what is on disk.
   * An assembly says how it goes together (``metadata.assembly_process``, see
     docs/assembly-process.md): every instance installed once, in order, from a
-    direction. Without it nothing downstream can explode or sequence the
+    direction, and listed in the file in that build order so the tree reads
+    as the build. Without it nothing downstream can explode or sequence the
     assembly, and the knowledge of how to build it lives nowhere.
 
 A real exception (a scanned surface, a print-in-place mechanism that is one
@@ -183,6 +184,17 @@ def _check_process(doc: dict, ids: list) -> None:
         ):
             problems.append(f"{sid}: rotate needs an axis and an angle_deg")
     problems += [f"{i!r} is never installed and is not in base" for i in ids if i not in placed]
+    # The tree reads as the build: instances listed base first, then step by
+    # step. Only judged once the steps themselves add up.
+    if not problems:
+        order = list(proc.get("base") or [])
+        order += [i for s in proc.get("steps") or [] for i in s.get("instances") or []]
+        if ids != order:
+            first = next(k for k in range(len(ids)) if ids[k] != order[k])
+            problems.append(
+                "instances are not listed in build order "
+                f"(position {first + 1} is {ids[first]!r}, the build has {order[first]!r} there)"
+            )
     check(
         not problems,
         "says how it goes together (metadata.assembly_process)",

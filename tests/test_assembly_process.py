@@ -83,3 +83,14 @@ def test_twice_never_and_unknown_are_all_named(capsys):
     failures, out = _run_on(_assembly(bad), capsys)
     assert failures == 1
     assert "already installed" in out and "'ghost'" in out and "'screw' is never installed" in out
+
+
+def test_instances_out_of_build_order_fail(capsys):
+    doc = _assembly(GOOD)
+    doc["instances"] = [
+        {"id": "screw"},
+        {"id": "frame"},
+        {"id": "lid"},
+    ]  # screw listed before what it holds
+    failures, out = _run_on(doc, capsys)
+    assert failures == 1 and "build order" in out

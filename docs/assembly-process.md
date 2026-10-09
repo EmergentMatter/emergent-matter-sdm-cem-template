@@ -18,6 +18,25 @@ its own process and installed into its parent as one unit, in a step of the
 parent. The viewer plays the sub-assembly's steps first, then the step that
 installs it.
 
+## Build the tree the way the thing is built
+
+Structure the assembly the way it would come together on an assembly line,
+so that reading the tree top to bottom walks through the build:
+
+- **A sub-assembly is a station.** Group parts into a sub-assembly when they
+  are built up together off the main line and then installed as one unit
+  (a finger with its pins and covers, a stator with its coils). Do not group
+  by part type ("all the screws") or by file convenience; group by when and
+  where they go together. Nest as deep as the real build nests.
+- **List instances in build order.** In every assembly, `base` first, then
+  each step's instances in step order. The tree then reads as the build, and
+  a viewer playing the steps and a person scrolling the tree see the same
+  sequence. The checker fails an assembly whose instances are out of build
+  order, and says which order it expected.
+- **Fasteners go with what they fasten.** A screw is installed in the step
+  that installs (or closes) the part it holds, not in a pile at the end,
+  unless the real build really does fasten everything last.
+
 ## Shape
 
 ```json
@@ -77,8 +96,8 @@ prismatic mate already slides. State it explicitly whenever the two differ.
   the step's name, tool, fasteners and notes are shown.
 ## What the checker refuses
 
-An instance id that does not exist, an instance installed twice, an instance
-never installed and not in `base`, a step with no usable `direction` (and no
+Instances listed out of build order, an instance id that does not exist, an
+instance installed twice, an instance never installed and not in `base`, a step with no usable `direction` (and no
 mate to take one from), a `travel` that is not a positive number, a `rotate`
 without an axis and an angle. An assembly that genuinely has no meaningful
 sequence (a single fixed weldment, say) says so in
