@@ -120,7 +120,19 @@ diameter) and passes them down; a child reads them and never redeclares
 them. sdm-core's Assembly params and instance overrides are for designs
 authored directly as `.sdm` with no CEM, so `write_assembly` writes neither.
 
-The full text and the reasons for both rules are on the docs hub's
+### Build each feature once: pattern and revolve, never copy
+
+Anything repeated identically (around a circle, along a line, layer after
+layer) is built once in a tree builder and patterned with sdm-core's
+`canonical_sector_fold` or `repeat_finite`, never written out N times in a
+loop. Concentric steps, grooves, rings and bores on one axis are one
+`revolution` of a 2-D outline (`box_2d`, `polygon_2d`; it can repeat inside
+the outline), never stacked cylinders. A part's tree grows with the number of
+different features, not the number of copies: every evaluated point runs
+through the whole tree, so copies make files, meshing and memory scale with
+the count.
+
+The full text and the reasons for these rules are on the docs hub's
 [concepts](https://github.com/EmergentMatter/emergent-matter-sdm/blob/main/docs/concepts.md)
 page.
 
