@@ -181,6 +181,7 @@ def _check_process(doc: dict, ids: list) -> None:
     placed = dict.fromkeys(proc.get("base") or [], "base")
     problems += [f"base names {i!r}, not an instance" for i in placed if i not in known]
     mated = {str(m.get("child", "")).split(".")[0] for m in doc.get("mates") or []}
+    earlier: set = set()
     for n, step in enumerate(proc.get("steps") or []):
         sid = step.get("id") or f"step {n + 1}"
         for i in step.get("instances") or []:
@@ -208,6 +209,18 @@ def _check_process(doc: dict, ids: list) -> None:
             and isinstance(r.get("angle_deg"), (int, float))
         ):
             problems.append(f"{sid}: rotate needs an axis and an angle_deg")
+        after = step.get("after")
+        if after is not None:
+            if not isinstance(after, list):
+                problems.append(f"{sid}: after must be a list of step ids")
+            else:
+                problems += [f"{sid}: after names {a!r}, not an earlier step" for a in after if a not in earlier]
+        m = step.get("minutes")
+        if m is not None and not (isinstance(m, (int, float)) and m > 0):
+            problems.append(f"{sid}: minutes must be a positive number")
+        earlier.add(sid)
+    if proc.get("minutes_source") not in (None, "estimate", "measured"):
+        problems.append('minutes_source must be "estimate" or "measured"')
     problems += [f"{i!r} is never installed and is not in base" for i in ids if i not in placed]
     # The tree reads as the build: instances listed base first, then step by
     # step. Only judged once the steps themselves add up.

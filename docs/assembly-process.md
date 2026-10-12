@@ -63,9 +63,12 @@ so that reading the tree top to bottom walks through the build:
       "direction": [0, 0, -1],
       "travel": 40.0,
       "tool": "2.5 mm hex key, 1.2 N·m",
-      "fasteners": ["lid_screw_0", "lid_screw_1"]
+      "fasteners": ["lid_screw_0", "lid_screw_1"],
+      "after": ["bearings"],
+      "minutes": 3
     }
-  ]
+  ],
+  "minutes_source": "estimate"
 }
 ```
 
@@ -82,10 +85,29 @@ so that reading the tree top to bottom walks through the build:
 | `tool` | Free text: tool, fixture, torque. Optional. |
 | `fasteners` | Which of `instances` are fasteners, so a viewer can show them after what they hold. Optional. |
 | `notes` | Free text for the person building it. Optional. |
+| `after` | Ids of the steps that must be finished before this one can start. Only earlier steps of this assembly. Optional: left out, it means the step before (the first step needs only `base`). `[]` means it needs only `base`, so it can be done at any point. |
+| `minutes` | How long the step takes a person, in minutes. Optional. |
+| `minutes_source` | On the process, not a step: `"estimate"` or `"measured"`, so nobody mistakes a guess for a timing. |
 
 `direction` may be left out for a part that is mated (sdm-core `mates`): the
 viewer then uses the +Z axis of the mate's child port, which is where a
 prismatic mate already slides. State it explicitly whenever the two differ.
+
+## Order, and what can happen at the same time
+
+The steps are listed in one order that works, and the tree lists instances in
+that order. `after` says which steps really depend on which: a step whose
+`after` leaves out an earlier step can be done before it, after it, or by
+someone else at the same time. Say only what is physically required (this
+screw needs its part in place; this part sits on that one; this bearing must
+go on before the drive whose pinion is wider than its bore). Leave a step's
+`after` out when it really does need everything before it.
+
+A sub-assembly is built at its own station, off the main line, so its whole
+build can run at the same time as the steps before the one that installs it.
+Together this gives the build's critical path: the longest chain of steps
+(by `minutes` when given, else by count) from nothing to the finished
+assembly, through its sub-assemblies.
 
 ## What a viewer does with it
 
@@ -95,6 +117,9 @@ prismatic mate already slides. State it explicitly whenever the two differ.
 - **Build sequence**: Previous / Next / Play, for the assembly picked. Parts
   not yet installed are hidden; the current step's parts slide (and twist)
   in from their start; the step's name, tool, fasteners and notes are shown.
+- **Build order**: the steps as a flow chart, steps that can happen at the
+  same time side by side, sub-assemblies as their own lanes, and the critical
+  path marked.
 
 ## What the checker refuses
 
@@ -102,7 +127,9 @@ Instances listed out of build order, an instance id that does not exist, an
 instance installed twice, an instance never installed and not in `base`, a
 step with no usable `direction` (and no
 mate to take one from), a `travel` that is not a positive number, a `rotate`
-without an axis and an angle. An assembly that genuinely has no meaningful
+without an axis and an angle, an `after` that names a step that is not
+earlier in this assembly, a `minutes` that is not a positive number, a
+`minutes_source` other than `"estimate"` or `"measured"`. An assembly that genuinely has no meaningful
 sequence (a single fixed weldment, say) says so in
 `metadata.geometry_exceptions.assembly_process` with a reason.
 

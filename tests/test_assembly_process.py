@@ -94,3 +94,22 @@ def test_instances_out_of_build_order_fail(capsys):
     ]  # screw listed before what it holds
     failures, out = _run_on(doc, capsys)
     assert failures == 1 and "build order" in out
+
+
+def test_dependencies_and_times_pass(capsys):
+    doc = json.loads(json.dumps(GOOD))
+    doc["steps"][0]["after"] = []
+    doc["steps"][1].update({"after": ["lid"], "minutes": 2})
+    doc["minutes_source"] = "estimate"
+    failures, _ = _run_on(_assembly(doc), capsys)
+    assert failures == 0
+
+
+def test_after_names_only_earlier_steps(capsys):
+    doc = json.loads(json.dumps(GOOD))
+    doc["steps"][0]["after"] = ["screw"]                     # a later step
+    doc["steps"][1]["minutes"] = 0
+    doc["minutes_source"] = "a hunch"
+    failures, out = _run_on(_assembly(doc), capsys)
+    assert failures == 1
+    assert "not an earlier step" in out and "minutes must be" in out and "minutes_source" in out
