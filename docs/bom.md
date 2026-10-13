@@ -49,6 +49,6 @@ A missing `unit_price` is reported, not failed: leave it out until there is a
 real one. A part that genuinely has none of this (salvaged hardware with no
 source, say) declares it in `metadata.geometry_exceptions.bom` with the reason.
 
-Nothing here is ever guessed. A tool that fills a gap from other text (a
-McMaster number in the description, a process from the material) shows the
-filled value as a guess, so a missing fact stays visible.
+Nothing here is ever guessed, and tools reading it do not fill gaps from
+other text (a McMaster number in the description, a process from the
+material). A missing fact shows as missing.
