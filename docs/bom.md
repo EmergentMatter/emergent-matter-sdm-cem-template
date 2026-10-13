@@ -31,12 +31,24 @@ assembly's instances, so they cannot drift from the model.
 | `revision` | `x.y.z`, engineering-playbook `conventions/part-revisions.md`. A CEM that stamps `metadata.source.revision` need not repeat it here. |
 | `vendor`, `vendor_part_number`, `url` | Where a bought part comes from. |
 | `unit_price`, `currency` | Price of one `unit`. `currency` defaults to `USD`. Only a price someone quoted or paid; never an estimate. |
-| `unit` | What the part is counted in: `each` (the default), or `mm`, `m`, `in`, `ft`, `mm^2`, `ft^2`, `g`, `kg`, `ml`. |
+| `unit` | What the part is counted in: `each` (the default), or `mm`, `m`, `in`, `ft`, `mm^2`, `m^2`, `in^2`, `ft^2`, `g`, `kg`, `ml`, `l`. |
 | `quantity` | How many `unit` one piece uses, for stock cut to size: a pad cut from sheet is `"unit": "ft^2", "quantity": 0.02`. Defaults to 1. |
 | `fabrication` | How it is made: `Purchased`, `SLS`, `FDM`, `SLA`, `Machined`, `Laser cut`, `Cut from stock`, ... |
 | `notes` | Anything a buyer or the shop needs. |
 
-Every field is optional. Where one is missing the viewer works out what it
-can (vendor and part number from a McMaster number in the description, the
-process from the material, `Purchased` from `bought`) and shows it as a guess,
-so a missing fact is visible rather than silently filled in.
+## What is required
+
+`scripts/check_geometry.py` checks every part file:
+
+- A bought part (`"bought": true`) names `vendor` and `vendor_part_number`.
+- A made part (anything else) says its `fabrication`.
+- Every field present is well formed: `unit` from the list above, a
+  `unit_price` and `quantity` that are numbers, a revision `x.y.z`.
+
+A missing `unit_price` is reported, not failed: leave it out until there is a
+real one. A part that genuinely has none of this (salvaged hardware with no
+source, say) declares it in `metadata.geometry_exceptions.bom` with the reason.
+
+Nothing here is ever guessed. A tool that fills a gap from other text (a
+McMaster number in the description, a process from the material) shows the
+filled value as a guess, so a missing fact stays visible.

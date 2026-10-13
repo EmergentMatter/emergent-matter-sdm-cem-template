@@ -45,6 +45,15 @@ The rules this enforces, and what breaks without each:
     (``hand_mech_crank_driven_thumb``), so a person reads where a part lives
     and what it is without opening the tree (sdm-core ADR 0009).
 
+  * Every part file carries what its parts-list line needs and the geometry
+    cannot give (``metadata.bom``, see docs/bom.md). A bought part names its
+    vendor and the vendor's part number; a made part says how it is made.
+    Without them a parts list is a list of file names, and someone retypes
+    every vendor and process by hand, from memory, again for every build.
+    Quantities are not written: they are counted from the instances. A
+    missing price is reported, not failed: a price nobody quoted is worse
+    than none.
+
 A real exception (a scanned surface, a print-in-place mechanism that is one
 part but several bodies) is declared in the part's own metadata with a reason,
 so the exception is visible in the file rather than in someone's memory::
@@ -69,7 +78,7 @@ import tomllib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-OK, BAD = "  ok   ", " FAIL  "
+OK, BAD, NOTE = "  ok   ", " FAIL  ", "  note "
 #: Body-count sample pitch, mm: the finer of this and the part's longest side
 #: over N_BODY_MIN_CELLS. Fine enough that a printed wall does not read as a
 #: break; a wall thinner than this can.
@@ -88,6 +97,78 @@ def check(b_ok: bool, s_label: str, s_detail: str = "") -> bool:
     print((OK if b_ok else BAD) + s_label + (f"  {s_detail}" if s_detail else ""))
     _failures += not b_ok
     return b_ok
+
+
+def note(s_label: str) -> None:
+    """Worth knowing, not a failure."""
+    print(NOTE + s_label)
+
+
+#: What a parts-list quantity may be counted in (docs/bom.md).
+BOM_UNITS = ("each", "mm", "m", "in", "ft", "mm^2", "m^2", "in^2", "ft^2", "g", "kg", "ml", "l")
+BOM_TEXT = (
+    "part_number",
+    "vendor",
+    "vendor_part_number",
+    "url",
+    "fabrication",
+    "notes",
+    "currency",
+    "material",
+)
+
+
+def _check_bom(doc: dict) -> None:
+    """The part carries what its parts-list line needs (docs/bom.md)."""
+    import re
+
+    meta = doc.get("metadata") or {}
+    exceptions = meta.get("geometry_exceptions") or {}
+    bom = meta.get("bom")
+    if bom is not None and not isinstance(bom, dict):
+        check(False, "metadata.bom is an object", type(bom).__name__)
+        return
+    bom = bom or {}
+    bad = [k for k in BOM_TEXT if k in bom and not (isinstance(bom[k], str) and bom[k].strip())]
+
+    def number(v) -> bool:
+        return isinstance(v, (int, float)) and not isinstance(v, bool)
+
+    price = bom.get("unit_price")
+    if price is not None and not (number(price) and price >= 0):
+        bad.append("unit_price (a number, 0 or more)")
+    qty = bom.get("quantity")
+    if qty is not None and not (number(qty) and qty > 0):
+        bad.append("quantity (a number above 0)")
+    if "unit" in bom and bom["unit"] not in BOM_UNITS:
+        bad.append(f"unit ({bom['unit']!r}: one of {', '.join(BOM_UNITS)})")
+    rev = bom.get("revision") or (meta.get("source") or {}).get("revision")
+    x_y_z = r"[1-9]\d*\.[1-9]\d*\.[1-9]\d*"
+    if rev is not None and not (isinstance(rev, str) and re.fullmatch(x_y_z, rev)):
+        bad.append(f"revision ({rev!r}: x.y.z, each from 1)")
+    check(not bad, "metadata.bom fields are well formed", ", ".join(bad))
+    if isinstance(exceptions, dict) and exceptions.get("bom"):
+        check(True, "parts-list facts excused", exceptions["bom"])
+        return
+    bought = meta.get("bought")
+    if bought is not None and not isinstance(bought, bool):
+        check(False, "metadata.bought is true or false", repr(bought))
+        return
+    if bought:
+        missing = [k for k in ("vendor", "vendor_part_number") if not bom.get(k)]
+        check(
+            not missing,
+            "bought part names its vendor and the vendor's part number",
+            "missing metadata.bom." + ", ".join(missing) if missing else "",
+        )
+        if price is None:
+            note("no unit_price yet (left empty rather than guessed)")
+    else:
+        check(
+            bool(bom.get("fabrication")),
+            "made part says how it is made",
+            "" if bom.get("fabrication") else "missing metadata.bom.fabrication (SLS, FDM, ...)",
+        )
 
 
 def _walk(node, found: list[str]) -> None:
@@ -285,6 +366,7 @@ def _check_part(path: Path, doc: dict) -> None:
     from software_defined_matter.sdf.compile import make_sdf_closure
 
     exceptions = (doc.get("metadata") or {}).get("geometry_exceptions") or {}
+    _check_bom(doc)
 
     kinds: list[str] = []
     _walk(doc.get("materials"), kinds)

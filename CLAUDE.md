@@ -120,6 +120,11 @@ can read any CEM's output:
   `clampring_1_screw`); a sub-assembly's id is its short name (`mech`). The
   full name is the ids from the top down, `HAND-MECH-CRANK-DRIVEN-THUMB`, so
   anyone can read where a part lives and what it is. sdm-core ADR 0009.
+- **Every part carries its parts-list facts.** A bought part names its
+  vendor and the vendor's part number, a made part its process, in
+  `metadata.bom`; a price only once someone has quoted one. Quantities are
+  never written: they are counted from the instances. Format:
+  [`docs/bom.md`](docs/bom.md).
 - **Assemblies that move carry their motions.** A mechanism's CEM knows its
   kinematics, so it writes each motion a person would want to watch (a grip
   opening and closing, a joint through its range) as an sdm-traj stream of
