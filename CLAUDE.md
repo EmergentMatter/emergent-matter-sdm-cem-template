@@ -115,6 +115,11 @@ can read any CEM's output:
   each installing some instances along a direction, with the tool. Reading
   the tree top to bottom should walk through the build. Format and reasons:
   [`docs/assembly-process.md`](docs/assembly-process.md).
+- **Assemblies that move carry their motions.** A mechanism's CEM knows its
+  kinematics, so it writes each motion a person would want to watch (a grip
+  opening and closing, a joint through its range) as an sdm-traj stream of
+  instance poses, next to the assembly in `<assembly>.motions/`. Format:
+  emergent-matter-sdm-physics `docs/trajectory-format.md`, "Assembly motion: poses".
 
 `scripts/check_geometry.py` checks all of this on this CEM's part, or on any
 `.sdm` you pass it, and says why each rule exists; `tests/test_geometry_standard.py`
