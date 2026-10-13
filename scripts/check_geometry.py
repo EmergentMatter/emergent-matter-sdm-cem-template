@@ -45,6 +45,24 @@ The rules this enforces, and what breaks without each:
     (``hand_mech_crank_driven_thumb``), so a person reads where a part lives
     and what it is without opening the tree (sdm-core ADR 0009).
 
+  * Curves are curves. An arc or round drawn as a polygon of short straight
+    segments is a row of flat strips: it renders faceted, exports faceted,
+    and prints or cuts faceted, and its radius cannot be measured. sdm-core
+    has the exact shapes: circle_2d, rounded_box_2d, uneven_capsule_2d (a
+    slot with round ends), and the round modifier on a sharp polygon. A
+    bspline_2d is smooth from a handful of control points; sdm-core samples
+    it into 16 straight pieces per control point, so one fed hundreds of
+    sampled points is no smoother and makes the part many times slower to
+    evaluate (a hand's fin went from under a minute to over twenty to mesh).
+  * Every part file carries what its parts-list line needs and the geometry
+    cannot give (``metadata.bom``, see docs/bom.md). A bought part names its
+    vendor and the vendor's part number; a made part says how it is made.
+    Without them a parts list is a list of file names, and someone retypes
+    every vendor and process by hand, from memory, again for every build.
+    Quantities are not written: they are counted from the instances. A
+    missing price is reported, not failed: a price nobody quoted is worse
+    than none.
+
 A real exception (a scanned surface, a print-in-place mechanism that is one
 part but several bodies) is declared in the part's own metadata with a reason,
 so the exception is visible in the file rather than in someone's memory::
@@ -69,7 +87,7 @@ import tomllib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-OK, BAD = "  ok   ", " FAIL  "
+OK, BAD, NOTE = "  ok   ", " FAIL  ", "  note "
 #: Body-count sample pitch, mm: the finer of this and the part's longest side
 #: over N_BODY_MIN_CELLS. Fine enough that a printed wall does not read as a
 #: break; a wall thinner than this can.
@@ -88,6 +106,169 @@ def check(b_ok: bool, s_label: str, s_detail: str = "") -> bool:
     print((OK if b_ok else BAD) + s_label + (f"  {s_detail}" if s_detail else ""))
     _failures += not b_ok
     return b_ok
+
+
+def note(s_label: str) -> None:
+    """Worth knowing, not a failure."""
+    print(NOTE + s_label)
+
+
+#: What a parts-list quantity may be counted in (docs/bom.md).
+BOM_UNITS = ("each", "mm", "m", "in", "ft", "mm^2", "m^2", "in^2", "ft^2", "g", "kg", "ml", "l")
+BOM_TEXT = (
+    "part_number",
+    "vendor",
+    "vendor_part_number",
+    "url",
+    "fabrication",
+    "notes",
+    "currency",
+    "material",
+)
+
+
+#: An outline fakes a curve when this many corners in a row each turn by a
+#: small angle (between the two below, degrees): a polygon's real corners
+#: turn sharply, a sampled arc turns a little at every vertex.
+N_FAKE_ARC_RUN = 4
+D_FAKE_ARC_MIN_DEG = 1.0
+D_FAKE_ARC_MAX_DEG = 35.0
+
+
+#: A bspline_2d with more control points than this was fed a sampled curve.
+N_SPLINE_MAX_POINTS = 24
+
+
+def _heavy_splines(materials) -> list[int]:
+    """Control-point counts of bspline_2d outlines with more than N_SPLINE_MAX_POINTS."""
+    out = []
+
+    def walk(node):
+        if isinstance(node, dict):
+            if node.get("kind") == "bspline_2d":
+                cp = (node.get("params") or {}).get("control_points") or []
+                if len(cp) > N_SPLINE_MAX_POINTS:
+                    out.append(len(cp))
+            for x in node.values():
+                walk(x)
+        elif isinstance(node, list):
+            for x in node:
+                walk(x)
+
+    walk(materials)
+    return out
+
+
+def _fake_arcs(materials) -> int:
+    """How many polygon_2d outlines run several gently turning corners in a row."""
+    import math
+
+    found = []
+
+    def walk(node):
+        if isinstance(node, dict):
+            if node.get("kind") == "polygon_2d":
+                v = (node.get("params") or {}).get("vertices") or node.get("vertices")
+                if isinstance(v, list) and len(v) > N_FAKE_ARC_RUN:
+                    found.append(v)
+            for x in node.values():
+                walk(x)
+        elif isinstance(node, list):
+            for x in node:
+                walk(x)
+
+    walk(materials)
+    n_fake = 0
+    for v in found:
+        run = best = 0
+        for i in range(len(v)):
+            a, b, c = v[i - 1], v[i], v[(i + 1) % len(v)]
+            t1 = math.atan2(b[1] - a[1], b[0] - a[0])
+            t2 = math.atan2(c[1] - b[1], c[0] - b[0])
+            turn = math.degrees(abs((t2 - t1 + math.pi) % (2 * math.pi) - math.pi))
+            run = run + 1 if D_FAKE_ARC_MIN_DEG < turn < D_FAKE_ARC_MAX_DEG else 0
+            best = max(best, run)
+        n_fake += best >= N_FAKE_ARC_RUN
+    return n_fake
+
+
+def _check_curves(doc: dict) -> None:
+    """Rounds and arcs are exact shapes, not polygons of short segments."""
+    exceptions = (doc.get("metadata") or {}).get("geometry_exceptions") or {}
+    n = _fake_arcs(doc.get("materials"))
+    if n and isinstance(exceptions, dict) and exceptions.get("arcs"):
+        check(True, "curves drawn as segments, declared", exceptions["arcs"])
+        return
+    check(
+        n == 0,
+        "curves are curves (no arc or round faked with straight segments)",
+        f"{n} polygon_2d outline{'s' if n > 1 else ''} with runs of short segments: use circle_2d, "
+        "rounded_box_2d, uneven_capsule_2d, or the round modifier"
+        if n
+        else "",
+    )
+    heavy = _heavy_splines(doc.get("materials"))
+    check(
+        not heavy,
+        f"splines are smooth from a few control points (at most {N_SPLINE_MAX_POINTS})",
+        f"bspline_2d with {', '.join(map(str, heavy))} control points: a sampled curve, "
+        "faceted and slow; use exact shapes, or a spline through a handful of points"
+        if heavy
+        else "",
+    )
+
+
+def _check_bom(doc: dict) -> None:
+    """The part carries what its parts-list line needs (docs/bom.md)."""
+    import re
+
+    meta = doc.get("metadata") or {}
+    exceptions = meta.get("geometry_exceptions") or {}
+    bom = meta.get("bom")
+    if bom is not None and not isinstance(bom, dict):
+        check(False, "metadata.bom is an object", type(bom).__name__)
+        return
+    bom = bom or {}
+    bad = [k for k in BOM_TEXT if k in bom and not (isinstance(bom[k], str) and bom[k].strip())]
+
+    def number(v) -> bool:
+        return isinstance(v, (int, float)) and not isinstance(v, bool)
+
+    price = bom.get("unit_price")
+    if price is not None and not (number(price) and price >= 0):
+        bad.append("unit_price (a number, 0 or more)")
+    qty = bom.get("quantity")
+    if qty is not None and not (number(qty) and qty > 0):
+        bad.append("quantity (a number above 0)")
+    if "unit" in bom and bom["unit"] not in BOM_UNITS:
+        bad.append(f"unit ({bom['unit']!r}: one of {', '.join(BOM_UNITS)})")
+    rev = bom.get("revision") or (meta.get("source") or {}).get("revision")
+    x_y_z = r"[1-9]\d*\.[1-9]\d*\.[1-9]\d*"
+    if rev is not None and not (isinstance(rev, str) and re.fullmatch(x_y_z, rev)):
+        bad.append(f"revision ({rev!r}: x.y.z, each from 1)")
+    check(not bad, "metadata.bom fields are well formed", ", ".join(bad))
+    if isinstance(exceptions, dict) and exceptions.get("bom"):
+        check(True, "parts-list facts excused", exceptions["bom"])
+        return
+    bought = meta.get("bought")
+    if bought is not None and not isinstance(bought, bool):
+        check(False, "metadata.bought is true or false", repr(bought))
+        return
+    if bought:
+        missing = [k for k in ("vendor", "vendor_part_number") if not bom.get(k)]
+        check(
+            not missing,
+            "bought part names its vendor and the vendor's part number",
+            "missing metadata.bom." + ", ".join(missing) if missing else "",
+        )
+        if price is None:
+            note("no unit_price yet (left empty rather than guessed)")
+    else:
+        check(
+            bool(bom.get("fabrication")),
+            "made part says how it is made",
+            "" if bom.get("fabrication") else "missing metadata.bom.fabrication (SLS, FDM, ...)",
+        )
 
 
 def _walk(node, found: list[str]) -> None:
@@ -190,6 +371,10 @@ def _check_names(path: Path, doc: dict) -> None:
     )
 
 
+#: What sort of work a build step is (docs/assembly-process.md).
+STEP_KINDS = ("place", "screw", "heat_set", "press", "glue", "snap", "solder", "other")
+
+
 def _check_process(doc: dict, ids: list) -> None:
     """The assembly says how it goes together (docs/assembly-process.md)."""
     meta = doc.get("metadata") or {}
@@ -251,6 +436,8 @@ def _check_process(doc: dict, ids: list) -> None:
         m = step.get("minutes")
         if m is not None and not (isinstance(m, (int, float)) and m > 0):
             problems.append(f"{sid}: minutes must be a positive number")
+        if step.get("kind") not in (None, *STEP_KINDS):
+            problems.append(f"{sid}: kind must be one of {', '.join(STEP_KINDS)}")
         earlier.add(sid)
     if proc.get("minutes_source") not in (None, "estimate", "measured"):
         problems.append('minutes_source must be "estimate" or "measured"')
@@ -279,6 +466,8 @@ def _check_part(path: Path, doc: dict) -> None:
     from software_defined_matter.sdf.compile import make_sdf_closure
 
     exceptions = (doc.get("metadata") or {}).get("geometry_exceptions") or {}
+    _check_bom(doc)
+    _check_curves(doc)
 
     kinds: list[str] = []
     _walk(doc.get("materials"), kinds)

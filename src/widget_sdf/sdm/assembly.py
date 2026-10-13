@@ -15,6 +15,8 @@ __all__ = ["MATERIAL_ID", "MATERIAL_NAME", "PARAM_FIELDS", "build_widget_part"]
 
 MATERIAL_ID = 1
 MATERIAL_NAME = "nylon12_sls"
+#: How the part is made, for its parts-list line (docs/bom.md).
+FABRICATION = "SLS"
 
 #: The fields that ship in the `.sdm` as params. Derived values are NOT here:
 #: they are recomputed from these, and shipping them as free params is what
@@ -84,5 +86,10 @@ def build_widget_part(params: WidgetParameters | None = None, *, name: str = "wi
                 sdf_tree=body_tree(params),
             )
         ],
-        metadata={"bbox": [lo, hi], "units": "mm"},
+        metadata={
+            "bbox": [lo, hi],
+            "units": "mm",
+            "bought": False,
+            "bom": {"fabrication": FABRICATION},
+        },
     )

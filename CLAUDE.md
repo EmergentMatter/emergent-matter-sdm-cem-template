@@ -96,6 +96,13 @@ can read any CEM's output:
   node types: primitives, 2D profiles extruded or revolved, sweeps, lofts,
   repeats, mirrors, offsets, and the booleans. A hole is a cylinder whose
   radius is a parameter. Never a primitive that exists only in this repo.
+- **Curves are curves.** Never draw an arc, a round end or a fillet as a
+  polygon of short straight segments: it renders, exports and prints as flat
+  strips. Use `circle_2d`, `rounded_box_2d`, `uneven_capsule_2d` (a slot with
+  round ends), or the round modifier on a sharp polygon. `bspline_2d` only with
+  a handful of control points: sdm-core samples it into 16 pieces per point,
+  so a spline fed hundreds of sampled points is still faceted and many times
+  slower to evaluate.
 - **No sampled grids for designed geometry.** No `raster_field`, and no
   designing in a B-rep kernel and sampling the result. A grid is for measured
   data (a scan), declared as such.
@@ -120,6 +127,11 @@ can read any CEM's output:
   `clampring_1_screw`); a sub-assembly's id is its short name (`mech`). The
   full name is the ids from the top down, `HAND-MECH-CRANK-DRIVEN-THUMB`, so
   anyone can read where a part lives and what it is. sdm-core ADR 0009.
+- **Every part carries its parts-list facts.** A bought part names its
+  vendor and the vendor's part number, a made part its process, in
+  `metadata.bom`; a price only once someone has quoted one. Quantities are
+  never written: they are counted from the instances. Format:
+  [`docs/bom.md`](docs/bom.md).
 - **Assemblies that move carry their motions.** A mechanism's CEM knows its
   kinematics, so it writes each motion a person would want to watch (a grip
   opening and closing, a joint through its range) as an sdm-traj stream of

@@ -87,6 +87,7 @@ so that reading the tree top to bottom walks through the build:
 | `notes` | Free text for the person building it. Optional. |
 | `after` | Ids of the steps that must be finished before this one can start. Only earlier steps of this assembly. Optional: left out, it means the step before (the first step needs only `base`). `[]` means it needs only `base`, so it can be done at any point. |
 | `minutes` | How long the step takes a person, in minutes. Optional. |
+| `kind` | What sort of work the step is: `place`, `screw`, `heat_set`, `press`, `glue`, `snap`, `solder` or `other`. Optional; a viewer colours steps by it and works it out from `tool` and `name` when it is missing. |
 | `minutes_source` | On the process, not a step: `"estimate"` or `"measured"`, so nobody mistakes a guess for a timing. |
 
 `direction` may be left out for a part that is mated (sdm-core `mates`): the
@@ -128,7 +129,7 @@ instance installed twice, an instance never installed and not in `base`, a
 step with no usable `direction` (and no
 mate to take one from), a `travel` that is not a positive number, a `rotate`
 without an axis and an angle, an `after` that names a step that is not
-earlier in this assembly, a `minutes` that is not a positive number, a
+earlier in this assembly, a `minutes` that is not a positive number, a `kind` not in the list, a
 `minutes_source` other than `"estimate"` or `"measured"`. An assembly that genuinely has no meaningful
 sequence (a single fixed weldment, say) says so in
 `metadata.geometry_exceptions.assembly_process` with a reason.
