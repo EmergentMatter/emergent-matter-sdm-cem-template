@@ -87,6 +87,50 @@ sign you know. `tests/test_build.py` is the pattern. It is cheap (JAX traces
 once per module) and it is the only thing that distinguishes "it built" from
 "it built the right thing".
 
+## How geometry is built
+
+Every CEM builds geometry the same way, so that any tool, and the next agent,
+can read any CEM's output:
+
+- **Shapes, from parameters.** Each material is an SDF tree of sdm-core's own
+  node types: primitives, 2D profiles extruded or revolved, sweeps, lofts,
+  repeats, mirrors, offsets, and the booleans. A hole is a cylinder whose
+  radius is a parameter. Never a primitive that exists only in this repo.
+- **No sampled grids for designed geometry.** No `raster_field`, and no
+  designing in a B-rep kernel and sampling the result. A grid is for measured
+  data (a scan), declared as such.
+- **One physical part per part file.** More than one part makes an
+  assembly: one part file each, placed by instances, nested sub-assemblies
+  where the hardware is nested. Bought parts are simple envelope shapes with
+  their mating features (bores, faces, bolt holes) and no internal detail.
+- **One file per physical part, reused.** A part used in several places is
+  one part file placed by several instances, never copied to a second file:
+  then a change to it reaches every place it is used, and the parts list
+  counts it right. A variant (a different length, say) is a different part,
+  with its own file or its own `param_overrides`.
+- **Assemblies are built the way the thing is built.** Group parts into
+  sub-assemblies by build station (what is put together off the line and
+  installed as a unit), list every assembly's instances in build order, and
+  carry the build sequence in `metadata.assembly_process`: steps in order,
+  each installing some instances along a direction, with the tool. Reading
+  the tree top to bottom should walk through the build. Format and reasons:
+  [`docs/assembly-process.md`](docs/assembly-process.md).
+- **Names read from the assembly down to the detail.** Each instance id says
+  what it is first, then the detail (`screw_m2x6_clampring_1`, not
+  `clampring_1_screw`); a sub-assembly's id is its short name (`mech`). The
+  full name is the ids from the top down, `HAND-MECH-CRANK-DRIVEN-THUMB`, so
+  anyone can read where a part lives and what it is. sdm-core ADR 0009.
+- **Assemblies that move carry their motions.** A mechanism's CEM knows its
+  kinematics, so it writes each motion a person would want to watch (a grip
+  opening and closing, a joint through its range) as an sdm-traj stream of
+  instance poses, next to the assembly in `<assembly>.motions/`. Format:
+  emergent-matter-sdm-physics `docs/trajectory-format.md`, "Assembly motion: poses".
+
+`scripts/check_geometry.py` checks all of this on this CEM's part, or on any
+`.sdm` you pass it, and says why each rule exists; `tests/test_geometry_standard.py`
+makes a breach fail `pytest`. A genuine exception goes in the file's own
+`metadata.geometry_exceptions` with a reason, never in a comment or a chat.
+
 ## Adding a parameter: the full checklist
 
 Miss any step and the failure is silent:
