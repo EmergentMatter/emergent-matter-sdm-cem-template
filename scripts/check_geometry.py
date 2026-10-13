@@ -190,6 +190,10 @@ def _check_names(path: Path, doc: dict) -> None:
     )
 
 
+#: What sort of work a build step is (docs/assembly-process.md).
+STEP_KINDS = ("place", "screw", "heat_set", "press", "glue", "snap", "solder", "other")
+
+
 def _check_process(doc: dict, ids: list) -> None:
     """The assembly says how it goes together (docs/assembly-process.md)."""
     meta = doc.get("metadata") or {}
@@ -251,6 +255,8 @@ def _check_process(doc: dict, ids: list) -> None:
         m = step.get("minutes")
         if m is not None and not (isinstance(m, (int, float)) and m > 0):
             problems.append(f"{sid}: minutes must be a positive number")
+        if step.get("kind") not in (None, *STEP_KINDS):
+            problems.append(f"{sid}: kind must be one of {', '.join(STEP_KINDS)}")
         earlier.add(sid)
     if proc.get("minutes_source") not in (None, "estimate", "measured"):
         problems.append('minutes_source must be "estimate" or "measured"')
