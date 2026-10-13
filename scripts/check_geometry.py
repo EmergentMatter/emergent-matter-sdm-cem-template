@@ -38,6 +38,12 @@ The rules this enforces, and what breaks without each:
     direction, and listed in the file in that build order so the tree reads
     as the build. Without it nothing downstream can explode or sequence the
     assembly, and the knowledge of how to build it lives nowhere.
+  * Names read from the assembly down to the detail. Each instance names what
+    it is first, then the detail (``screw_m2x6_clampring_1``, not
+    ``clampring_1_screw``): an instance of a part starts with the first word
+    of its part file's name. The full name is the ids from the top down
+    (``HAND-MECH-CRANK-DRIVEN-THUMB``), so a person reads where a part lives
+    and what it is without opening the tree (sdm-core ADR 0009).
 
 A real exception (a scanned surface, a print-in-place mechanism that is one
 part but several bodies) is declared in the part's own metadata with a reason,
@@ -136,6 +142,7 @@ def _check_assembly(path: Path, doc: dict, seen: set[Path]) -> None:
                 "" if actual == pinned else "the part changed after this assembly was written",
             )
         targets.append(target)
+    _check_names(path, doc)
     _check_process(doc, ids)
     for target in dict.fromkeys(targets):
         check_file(target, seen)
@@ -158,6 +165,28 @@ def _check_reuse(paths) -> None:
         "each part is one file, reused by instances",
         "; ".join(" = ".join(p.name for p in g) for g in copies)
         + (": keep one file and point every instance at it" if copies else ""),
+    )
+
+
+def _check_names(path: Path, doc: dict) -> None:
+    """Each instance of a part starts with what the part is (sdm-core ADR 0009)."""
+    wrong = []
+    for inst in doc.get("instances", []):
+        rel = (inst.get("part_ref") or {}).get("path", "")
+        target = path.parent / rel
+        try:
+            if _is_assembly(json.loads(target.read_text())):
+                continue                       # a sub-assembly's id is its short name
+        except (OSError, ValueError):
+            continue
+        kind = Path(rel).stem.split("_")[0]
+        iid = inst.get("id", "")
+        if iid != kind and not iid.startswith(kind + "_"):
+            wrong.append(f"{iid} (places {Path(rel).stem}: start it {kind}_)")
+    check(
+        not wrong,
+        "names say what each part is first, then the detail",
+        ", ".join(wrong[:4]) + (f" and {len(wrong) - 4} more" if len(wrong) > 4 else ""),
     )
 
 

@@ -115,6 +115,11 @@ can read any CEM's output:
   each installing some instances along a direction, with the tool. Reading
   the tree top to bottom should walk through the build. Format and reasons:
   [`docs/assembly-process.md`](docs/assembly-process.md).
+- **Names read from the assembly down to the detail.** Each instance id says
+  what it is first, then the detail (`screw_m2x6_clampring_1`, not
+  `clampring_1_screw`); a sub-assembly's id is its short name (`mech`). The
+  full name is the ids from the top down, `HAND-MECH-CRANK-DRIVEN-THUMB`, so
+  anyone can read where a part lives and what it is. sdm-core ADR 0009.
 - **Assemblies that move carry their motions.** A mechanism's CEM knows its
   kinematics, so it writes each motion a person would want to watch (a grip
   opening and closing, a joint through its range) as an sdm-traj stream of
