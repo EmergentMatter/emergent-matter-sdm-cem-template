@@ -42,7 +42,7 @@ The rules this enforces, and what breaks without each:
     it is first, then the detail (``screw_m2x6_clampring_1``, not
     ``clampring_1_screw``): an instance of a part starts with the first word
     of its part file's name. The full name is the ids from the top down
-    (``HAND-MECH-CRANK-DRIVEN-THUMB``), so a person reads where a part lives
+    (``hand_mech_crank_driven_thumb``), so a person reads where a part lives
     and what it is without opening the tree (sdm-core ADR 0009).
 
 A real exception (a scanned surface, a print-in-place mechanism that is one
