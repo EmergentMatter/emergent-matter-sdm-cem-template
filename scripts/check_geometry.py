@@ -45,6 +45,12 @@ The rules this enforces, and what breaks without each:
     (``hand_mech_crank_driven_thumb``), so a person reads where a part lives
     and what it is without opening the tree (sdm-core ADR 0009).
 
+  * Curves are curves. An arc or round drawn as a polygon of short straight
+    segments is a row of flat strips: it renders faceted, exports faceted,
+    and prints or cuts faceted, and its radius cannot be measured. sdm-core
+    has the exact shapes: circle_2d, rounded_box_2d, uneven_capsule_2d (a
+    slot with round ends), the round modifier on a sharp polygon, and
+    bspline_2d for any other smooth curve.
   * Every part file carries what its parts-list line needs and the geometry
     cannot give (``metadata.bom``, see docs/bom.md). A bought part names its
     vendor and the vendor's part number; a made part says how it is made.
@@ -116,6 +122,64 @@ BOM_TEXT = (
     "currency",
     "material",
 )
+
+
+#: An outline fakes a curve when this many corners in a row each turn by a
+#: small angle (between the two below, degrees): a polygon's real corners
+#: turn sharply, a sampled arc turns a little at every vertex.
+N_FAKE_ARC_RUN = 4
+D_FAKE_ARC_MIN_DEG = 1.0
+D_FAKE_ARC_MAX_DEG = 35.0
+
+
+def _fake_arcs(materials) -> int:
+    """How many polygon_2d outlines run several gently turning corners in a row."""
+    import math
+
+    found = []
+
+    def walk(node):
+        if isinstance(node, dict):
+            if node.get("kind") == "polygon_2d":
+                v = (node.get("params") or {}).get("vertices") or node.get("vertices")
+                if isinstance(v, list) and len(v) > N_FAKE_ARC_RUN:
+                    found.append(v)
+            for x in node.values():
+                walk(x)
+        elif isinstance(node, list):
+            for x in node:
+                walk(x)
+
+    walk(materials)
+    n_fake = 0
+    for v in found:
+        run = best = 0
+        for i in range(len(v)):
+            a, b, c = v[i - 1], v[i], v[(i + 1) % len(v)]
+            t1 = math.atan2(b[1] - a[1], b[0] - a[0])
+            t2 = math.atan2(c[1] - b[1], c[0] - b[0])
+            turn = math.degrees(abs((t2 - t1 + math.pi) % (2 * math.pi) - math.pi))
+            run = run + 1 if D_FAKE_ARC_MIN_DEG < turn < D_FAKE_ARC_MAX_DEG else 0
+            best = max(best, run)
+        n_fake += best >= N_FAKE_ARC_RUN
+    return n_fake
+
+
+def _check_curves(doc: dict) -> None:
+    """Rounds and arcs are exact shapes, not polygons of short segments."""
+    exceptions = (doc.get("metadata") or {}).get("geometry_exceptions") or {}
+    n = _fake_arcs(doc.get("materials"))
+    if n and isinstance(exceptions, dict) and exceptions.get("arcs"):
+        check(True, "curves drawn as segments, declared", exceptions["arcs"])
+        return
+    check(
+        n == 0,
+        "curves are curves (no arc or round faked with straight segments)",
+        f"{n} polygon_2d outline{'s' if n > 1 else ''} with runs of short segments: use circle_2d, "
+        "rounded_box_2d, uneven_capsule_2d, the round modifier, or bspline_2d"
+        if n
+        else "",
+    )
 
 
 def _check_bom(doc: dict) -> None:
@@ -367,6 +431,7 @@ def _check_part(path: Path, doc: dict) -> None:
 
     exceptions = (doc.get("metadata") or {}).get("geometry_exceptions") or {}
     _check_bom(doc)
+    _check_curves(doc)
 
     kinds: list[str] = []
     _walk(doc.get("materials"), kinds)

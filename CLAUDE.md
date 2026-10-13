@@ -96,6 +96,11 @@ can read any CEM's output:
   node types: primitives, 2D profiles extruded or revolved, sweeps, lofts,
   repeats, mirrors, offsets, and the booleans. A hole is a cylinder whose
   radius is a parameter. Never a primitive that exists only in this repo.
+- **Curves are curves.** Never draw an arc, a round end or a fillet as a
+  polygon of short straight segments: it renders, exports and prints as flat
+  strips. Use `circle_2d`, `rounded_box_2d`, `uneven_capsule_2d` (a slot with
+  round ends), the round modifier on a sharp polygon, or `bspline_2d` for any
+  other smooth curve.
 - **No sampled grids for designed geometry.** No `raster_field`, and no
   designing in a B-rep kernel and sampling the result. A grid is for measured
   data (a scan), declared as such.
