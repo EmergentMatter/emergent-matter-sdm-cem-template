@@ -176,7 +176,7 @@ def _check_names(path: Path, doc: dict) -> None:
         target = path.parent / rel
         try:
             if _is_assembly(json.loads(target.read_text())):
-                continue                       # a sub-assembly's id is its short name
+                continue  # a sub-assembly's id is its short name
         except (OSError, ValueError):
             continue
         kind = Path(rel).stem.split("_")[0]
@@ -243,7 +243,11 @@ def _check_process(doc: dict, ids: list) -> None:
             if not isinstance(after, list):
                 problems.append(f"{sid}: after must be a list of step ids")
             else:
-                problems += [f"{sid}: after names {a!r}, not an earlier step" for a in after if a not in earlier]
+                problems += [
+                    f"{sid}: after names {a!r}, not an earlier step"
+                    for a in after
+                    if a not in earlier
+                ]
         m = step.get("minutes")
         if m is not None and not (isinstance(m, (int, float)) and m > 0):
             problems.append(f"{sid}: minutes must be a positive number")

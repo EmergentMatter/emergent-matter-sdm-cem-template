@@ -107,7 +107,7 @@ def test_dependencies_and_times_pass(capsys):
 
 def test_after_names_only_earlier_steps(capsys):
     doc = json.loads(json.dumps(GOOD))
-    doc["steps"][0]["after"] = ["screw"]                     # a later step
+    doc["steps"][0]["after"] = ["screw"]  # a later step
     doc["steps"][1]["minutes"] = 0
     doc["minutes_source"] = "a hunch"
     failures, out = _run_on(_assembly(doc), capsys)
@@ -118,8 +118,14 @@ def test_after_names_only_earlier_steps(capsys):
 def test_names_start_with_what_the_part_is(tmp_path, capsys):
     mod = _checker()
     (tmp_path / "screw_m3x8.sdm").write_text(json.dumps({"name": "screw_m3x8", "materials": []}))
-    good = {"kind": "assembly", "instances": [{"id": "screw_m3x8_lid_0", "part_ref": {"path": "screw_m3x8.sdm"}}]}
-    bad = {"kind": "assembly", "instances": [{"id": "lid_0_screw", "part_ref": {"path": "screw_m3x8.sdm"}}]}
+    good = {
+        "kind": "assembly",
+        "instances": [{"id": "screw_m3x8_lid_0", "part_ref": {"path": "screw_m3x8.sdm"}}],
+    }
+    bad = {
+        "kind": "assembly",
+        "instances": [{"id": "lid_0_screw", "part_ref": {"path": "screw_m3x8.sdm"}}],
+    }
     mod._check_names(tmp_path / "box.sdm", good)
     assert mod._failures == 0
     mod._check_names(tmp_path / "box.sdm", bad)
