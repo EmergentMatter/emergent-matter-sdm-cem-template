@@ -43,6 +43,21 @@ def test_a_round_end_drawn_as_segments_fails(capsys):
     assert "uneven_capsule_2d" in out
 
 
+def test_a_spline_fed_a_sampled_curve_fails(capsys):
+    pts = [[math.cos(t / 10), math.sin(t / 10)] for t in range(63)]
+    doc = {
+        "materials": [{"sdf_tree": {"kind": "bspline_2d", "params": {"control_points": pts}}}],
+        "metadata": {},
+    }
+    n, out = _run(doc, capsys)
+    assert n == 1 and "63 control points" in out
+    few = {
+        "materials": [{"sdf_tree": {"kind": "bspline_2d", "params": {"control_points": pts[::8]}}}],
+        "metadata": {},
+    }
+    assert _run(few, capsys)[0] == 0
+
+
 def test_a_plain_polygon_passes(capsys):
     hexagon = [[math.cos(math.radians(60 * k)), math.sin(math.radians(60 * k))] for k in range(6)]
     l_shape = [[0, 0], [10, 0], [10, 3], [3, 3], [3, 10], [0, 10]]

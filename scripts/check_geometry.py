@@ -49,8 +49,11 @@ The rules this enforces, and what breaks without each:
     segments is a row of flat strips: it renders faceted, exports faceted,
     and prints or cuts faceted, and its radius cannot be measured. sdm-core
     has the exact shapes: circle_2d, rounded_box_2d, uneven_capsule_2d (a
-    slot with round ends), the round modifier on a sharp polygon, and
-    bspline_2d for any other smooth curve.
+    slot with round ends), and the round modifier on a sharp polygon. A
+    bspline_2d is smooth from a handful of control points; sdm-core samples
+    it into 16 straight pieces per control point, so one fed hundreds of
+    sampled points is no smoother and makes the part many times slower to
+    evaluate (a hand's fin went from under a minute to over twenty to mesh).
   * Every part file carries what its parts-list line needs and the geometry
     cannot give (``metadata.bom``, see docs/bom.md). A bought part names its
     vendor and the vendor's part number; a made part says how it is made.
@@ -132,6 +135,30 @@ D_FAKE_ARC_MIN_DEG = 1.0
 D_FAKE_ARC_MAX_DEG = 35.0
 
 
+#: A bspline_2d with more control points than this was fed a sampled curve.
+N_SPLINE_MAX_POINTS = 24
+
+
+def _heavy_splines(materials) -> list[int]:
+    """Control-point counts of bspline_2d outlines with more than N_SPLINE_MAX_POINTS."""
+    out = []
+
+    def walk(node):
+        if isinstance(node, dict):
+            if node.get("kind") == "bspline_2d":
+                cp = (node.get("params") or {}).get("control_points") or []
+                if len(cp) > N_SPLINE_MAX_POINTS:
+                    out.append(len(cp))
+            for x in node.values():
+                walk(x)
+        elif isinstance(node, list):
+            for x in node:
+                walk(x)
+
+    walk(materials)
+    return out
+
+
 def _fake_arcs(materials) -> int:
     """How many polygon_2d outlines run several gently turning corners in a row."""
     import math
@@ -176,8 +203,17 @@ def _check_curves(doc: dict) -> None:
         n == 0,
         "curves are curves (no arc or round faked with straight segments)",
         f"{n} polygon_2d outline{'s' if n > 1 else ''} with runs of short segments: use circle_2d, "
-        "rounded_box_2d, uneven_capsule_2d, the round modifier, or bspline_2d"
+        "rounded_box_2d, uneven_capsule_2d, or the round modifier"
         if n
+        else "",
+    )
+    heavy = _heavy_splines(doc.get("materials"))
+    check(
+        not heavy,
+        f"splines are smooth from a few control points (at most {N_SPLINE_MAX_POINTS})",
+        f"bspline_2d with {', '.join(map(str, heavy))} control points: a sampled curve, "
+        "faceted and slow; use exact shapes, or a spline through a handful of points"
+        if heavy
         else "",
     )
 

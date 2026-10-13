@@ -99,8 +99,10 @@ can read any CEM's output:
 - **Curves are curves.** Never draw an arc, a round end or a fillet as a
   polygon of short straight segments: it renders, exports and prints as flat
   strips. Use `circle_2d`, `rounded_box_2d`, `uneven_capsule_2d` (a slot with
-  round ends), the round modifier on a sharp polygon, or `bspline_2d` for any
-  other smooth curve.
+  round ends), or the round modifier on a sharp polygon. `bspline_2d` only with
+  a handful of control points: sdm-core samples it into 16 pieces per point,
+  so a spline fed hundreds of sampled points is still faceted and many times
+  slower to evaluate.
 - **No sampled grids for designed geometry.** No `raster_field`, and no
   designing in a B-rep kernel and sampling the result. A grid is for measured
   data (a scan), declared as such.
