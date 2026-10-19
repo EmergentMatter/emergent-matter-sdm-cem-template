@@ -33,8 +33,33 @@ assembly's instances, so they cannot drift from the model.
 | `unit_price`, `currency` | Price of one `unit`. `currency` defaults to `USD`. Only a price someone quoted or paid; never an estimate. |
 | `unit` | What the part is counted in: `each` (the default), or `mm`, `m`, `in`, `ft`, `mm^2`, `m^2`, `in^2`, `ft^2`, `g`, `kg`, `ml`, `l`. |
 | `quantity` | How many `unit` one piece uses, for stock cut to size: a pad cut from sheet is `"unit": "ft^2", "quantity": 0.02`. Defaults to 1. |
-| `fabrication` | How it is made: `Purchased`, `SLS`, `FDM`, `SLA`, `Machined`, `Laser cut`, `Cut from stock`, ... |
+| `fabrication` | How it is made: one of the methods below, spelled exactly so a parts list can be sorted and counted by process. |
 | `notes` | Anything a buyer or the shop needs. |
+
+## Fabrication methods
+
+| Value | Meaning |
+| --- | --- |
+| `Purchased` | Bought as is (also set `"bought": true`) |
+| `FDM` | Filament 3D printing |
+| `SLS` | Powder-bed polymer printing, laser (e.g. Fuse 1, EOS) |
+| `MJF` | Powder-bed polymer printing, HP Multi Jet Fusion |
+| `SLA` | Resin printing, laser |
+| `DLP` | Resin printing, projector or LCD |
+| `Metal AM` | Metal printing (laser powder bed, binder jet, ...) |
+| `Machined` | Milled, CNC or manual |
+| `Turned` | Lathe work |
+| `Laser cut` | Cut from sheet or plate by laser |
+| `Waterjet cut` | Cut from sheet or plate by waterjet |
+| `Sheet metal` | Cut and bent sheet |
+| `Cast` | Poured into a mould (metal, urethane, epoxy) |
+| `Moulded` | Injection or compression moulded |
+| `Cut from stock` | Cut to length or size from bought stock (rod, tube, sheet) |
+| `Hand made` | Made by hand (assembly jigs, trimmed foam, ...) |
+
+Anything not on the list is written `Other: <what it is>` (e.g. `Other: EDM`),
+and is a sign the list should grow: add it here and in
+`FABRICATION_METHODS` in `scripts/check_geometry.py`.
 
 ## What is required
 
@@ -42,6 +67,8 @@ assembly's instances, so they cannot drift from the model.
 
 - A bought part (`"bought": true`) names `vendor` and `vendor_part_number`.
 - A made part (anything else) says its `fabrication`.
+- A `fabrication` value is one of the methods above, spelled as listed, or
+  `Other: <what it is>`. A wrong case (`sls`) is pointed to the right spelling.
 - Every field present is well formed: `unit` from the list above, a
   `unit_price` and `quantity` that are numbers, a revision `x.y.z`.
 

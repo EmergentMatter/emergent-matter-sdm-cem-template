@@ -115,6 +115,26 @@ def note(s_label: str) -> None:
 
 #: What a parts-list quantity may be counted in (docs/bom.md).
 BOM_UNITS = ("each", "mm", "m", "in", "ft", "mm^2", "m^2", "in^2", "ft^2", "g", "kg", "ml", "l")
+#: How a part is made (docs/bom.md). One spelling each, so a parts list can be
+#: sorted and counted by process; anything else is "Other: <what it is>".
+FABRICATION_METHODS = (
+    "Purchased",
+    "FDM",
+    "SLS",
+    "MJF",
+    "SLA",
+    "DLP",
+    "Metal AM",
+    "Machined",
+    "Turned",
+    "Laser cut",
+    "Waterjet cut",
+    "Sheet metal",
+    "Cast",
+    "Moulded",
+    "Cut from stock",
+    "Hand made",
+)
 BOM_TEXT = (
     "part_number",
     "vendor",
@@ -268,6 +288,31 @@ def _check_bom(doc: dict) -> None:
             bool(bom.get("fabrication")),
             "made part says how it is made",
             "" if bom.get("fabrication") else "missing metadata.bom.fabrication (SLS, FDM, ...)",
+        )
+    fab = bom.get("fabrication")
+    if fab:
+        ok = fab in FABRICATION_METHODS or (
+            isinstance(fab, str) and fab.startswith("Other: ") and len(fab) > 7
+        )
+        near = next(
+            (
+                m
+                for m in FABRICATION_METHODS
+                if isinstance(fab, str) and m.lower() == fab.strip().lower()
+            ),
+            None,
+        )
+        check(
+            ok,
+            "fabrication is one of the listed methods (or 'Other: ...')",
+            ""
+            if ok
+            else (
+                f"{fab!r}: write {near!r}"
+                if near
+                else f"{fab!r} is not in the list ({', '.join(FABRICATION_METHODS)}); "
+                "use 'Other: <what it is>' for anything new"
+            ),
         )
 
 

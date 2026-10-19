@@ -74,3 +74,22 @@ def test_stock_cut_to_size(capsys):
 def test_declared_exception_excuses_missing_facts(capsys):
     meta = {"bought": True, "geometry_exceptions": {"bom": "salvaged from the old hand; no vendor"}}
     assert _run(meta, capsys)[0] == 0
+
+
+def test_fabrication_is_one_of_the_listed_methods(capsys):
+    assert _run({"bom": {"fabrication": "SLS"}}, capsys)[0] == 0
+    assert _run({"bom": {"fabrication": "Other: EDM"}}, capsys)[0] == 0
+    n, out = _run({"bom": {"fabrication": "sls"}}, capsys)
+    assert n == 1 and "write 'SLS'" in out
+    n, out = _run({"bom": {"fabrication": "3D printed"}}, capsys)
+    assert n == 1 and "Other:" in out
+    assert (
+        _run(
+            {
+                "bought": True,
+                "bom": {"vendor": "V", "vendor_part_number": "1", "fabrication": "Purchased"},
+            },
+            capsys,
+        )[0]
+        == 0
+    )
