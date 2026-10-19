@@ -131,3 +131,11 @@ def test_names_start_with_what_the_part_is(tmp_path, capsys):
     mod._check_names(tmp_path / "box.sdm", bad)
     out = capsys.readouterr().out
     assert mod._failures == 1 and "lid_0_screw" in out and "start it screw_" in out
+
+
+def test_step_kind_is_from_the_list(capsys):
+    doc = json.loads(json.dumps(GOOD))
+    doc["steps"][0]["kind"] = "place"
+    doc["steps"][1]["kind"] = "hammer"
+    failures, out = _run_on(_assembly(doc), capsys)
+    assert failures == 1 and "kind must be one of" in out
