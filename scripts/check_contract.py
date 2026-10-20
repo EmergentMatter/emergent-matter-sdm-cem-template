@@ -126,6 +126,10 @@ def _checks(tmp: Path) -> int:
         return _summary()
     doc = json.loads(out.read_text())
 
+    # --- design regions, when the part declares them (docs/design-regions.md) -
+    if "design_regions" in (doc.get("metadata") or {}):
+        _check_design_regions(doc)
+
     # --- every param is controllable ----------------------------------------
     missing_unit = [k for k, v in doc["params"].items() if not v.get("unit")]
     check(
@@ -282,6 +286,53 @@ def _checks(tmp: Path) -> int:
             )
 
     return _summary()
+
+
+DESIGN_REGION_KINDS = ("keep_in", "keep_out", "optional")
+
+
+def _param_refs(node: object) -> list[str]:
+    """Every parameter a tree references, in either spelling ({"$ref": name} or
+    {"type": "param", "name": name})."""
+    if isinstance(node, dict):
+        if "$ref" in node:
+            return [str(node["$ref"])]
+        if node.get("type") == "param" and "name" in node:
+            return [str(node["name"])]
+        return [r for v in node.values() for r in _param_refs(v)]
+    if isinstance(node, list):
+        return [r for v in node for r in _param_refs(v)]
+    return []
+
+
+def _check_design_regions(doc: dict) -> None:
+    """The shape of metadata.design_regions. Where a region sits is a field
+    assertion's job, as for any tree; this catches what a tool would trip on."""
+    block = doc["metadata"]["design_regions"]
+    check(block.get("version") == 1, "design_regions is version 1", f"got {block.get('version')!r}")
+    unknown = sorted(set(block) - set(DESIGN_REGION_KINDS) - {"version"})
+    check(not unknown, "design_regions has only keep_in, keep_out, optional", f"unknown {unknown}")
+    declared = set(doc.get("params") or {})
+    problems: list[str] = []
+    for kind in DESIGN_REGION_KINDS:
+        entries = block.get(kind, [])
+        names = [e.get("name") for e in entries]
+        if len(set(names)) != len(names):
+            problems.append(f"{kind}: names repeat")
+        for e in entries:
+            label = f"{kind} {e.get('name')!r}"
+            if not str(e.get("name") or "").strip():
+                problems.append(f"{kind}: an entry has no name")
+            if not str(e.get("why") or "").strip():
+                problems.append(f"{label}: no why")
+            tree = e.get("sdf_tree")
+            if not isinstance(tree, dict) or "type" not in tree:
+                problems.append(f"{label}: no sdf_tree")
+                continue
+            missing = sorted(set(_param_refs(tree)) - declared)
+            if missing:
+                problems.append(f"{label}: references undeclared params {missing[:3]}")
+    check(not problems, "design_regions entries are complete", "; ".join(problems[:3]))
 
 
 def _tree_state() -> dict[str, int]:
