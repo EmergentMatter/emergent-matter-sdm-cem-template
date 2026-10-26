@@ -19,8 +19,10 @@ half-applying either.
 from __future__ import annotations
 
 import dataclasses
+import difflib
 import importlib
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -343,3 +345,81 @@ def test_resetting_release_history_sets_the_version_and_empties_changelog_d(
 
     fragments = sorted((dst / "changelog.d").glob("*.md"))
     assert not fragments, f"changelog.d/ still has the template's own notes: {fragments}"
+
+
+def _root_lock_entry(lock: Path) -> dict:
+    packages = tomllib.loads(lock.read_text())["package"]
+    roots = [p for p in packages if p.get("source") == {"editable": "."}]
+    assert len(roots) == 1
+    return roots[0]
+
+
+def test_the_lockfile_root_entry_follows_the_rename(tmp_path: Path) -> None:
+    """`uv sync --locked`, the first step of every CI job, fails when
+    `uv.lock` still names the package the rename replaced, so the lock's root
+    entry has to move with `[project].name`."""
+    dst = tmp_path / "renamed"
+    _copy_tree(dst)
+    old_lock = (dst / "uv.lock").read_text()
+
+    assert _run_rename(dst).returncode == 0
+
+    entry = _root_lock_entry(dst / "uv.lock")
+    assert entry["name"] == NEW_SLUG
+    assert entry["version"] == "0.1.0"
+    changed = [
+        line
+        for line in difflib.unified_diff(
+            old_lock.splitlines(), (dst / "uv.lock").read_text().splitlines(), lineterm="", n=0
+        )
+        if line[:1] in "+-" and not line.startswith(("+++", "---"))
+    ]
+    assert len(changed) == 4, changed  # two lines out, two in: the name and the version
+
+
+def test_the_lockfile_uses_the_normalised_name_for_an_underscored_thing(tmp_path: Path) -> None:
+    dst = tmp_path / "renamed"
+    _copy_tree(dst)
+
+    assert _run_rename(dst, thing="my_chair").returncode == 0
+
+    assert _root_lock_entry(dst / "uv.lock")["name"] == "emergent-matter-cem-my-chair"
+    assert tomllib.loads((dst / "pyproject.toml").read_text())["project"]["name"] == (
+        "emergent-matter-cem-my_chair"
+    )
+
+
+@pytest.mark.parametrize("damage", ["missing", "twice"])
+def test_a_lockfile_the_script_cannot_rewrite_stops_it_before_anything_changes(
+    tmp_path: Path, damage: str
+) -> None:
+    dst = tmp_path / "renamed"
+    _copy_tree(dst)
+    lock = (dst / "uv.lock").read_text()
+    block = lock[lock.index("[[package]]\nname = " + f'"{OLD_SLUG}"') :].split("\n\n", 1)[0]
+    lock = lock.replace(block, "") if damage == "missing" else lock + "\n\n" + block + "\n"
+    (dst / "uv.lock").write_text(lock)
+    before = {p: p.read_bytes() for p in dst.rglob("*") if p.is_file()}
+
+    result = _run_rename(dst)
+
+    assert result.returncode == 1
+    assert "uv.lock" in result.stderr
+    assert {p: p.read_bytes() for p in dst.rglob("*") if p.is_file()} == before
+
+
+def test_uv_accepts_the_renamed_lockfile_as_it_stands(tmp_path: Path) -> None:
+    """The oracle is `uv` itself: a lock that `uv lock --check` accepts is one
+    `uv sync --locked` accepts. Skipped without `uv`, but not in CI."""
+    uv = shutil.which("uv")
+    if uv is None:
+        if os.environ.get("CI"):
+            pytest.fail("uv is required in CI to check the renamed lockfile")
+        pytest.skip("uv is not on PATH")
+    dst = tmp_path / "renamed"
+    _copy_tree(dst)
+    assert _run_rename(dst).returncode == 0
+
+    result = subprocess.run([uv, "lock", "--check"], cwd=dst, capture_output=True, text=True)
+
+    assert result.returncode == 0, result.stderr

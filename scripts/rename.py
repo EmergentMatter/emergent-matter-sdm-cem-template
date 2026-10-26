@@ -6,7 +6,8 @@
 Performs README's "Use it" step 1, mechanically: renames the package
 directory and fixes every import and manifest reference that names it,
 renames the repo slug everywhere `pyproject.toml` and `ci.yml` carry it,
-renames the console-script key, and resets the release history (step 2).
+renames the console-script key, renames the root package in `uv.lock` (so
+`uv sync --locked` still passes), and resets the release history (step 2).
 
 WHY A SCRIPT AND NOT A PARAGRAPH. This rename procedure used to be prose in
 README, and every review round found another location it forgot: cem.toml's
@@ -72,6 +73,30 @@ def _valid_company(company: str) -> bool:
     return bool(re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", company))
 
 
+def _normalized(name: str) -> str:
+    """The spelling `uv.lock` records a package under: lowercase, with every
+    run of `-`, `_` and `.` collapsed to one `-` (PEP 503)."""
+    return re.sub(r"[-_.]+", "-", name).lower()
+
+
+def _relock_root(lock_text: str, new_slug: str) -> str:
+    """`uv.lock` with its root package entry renamed to `new_slug` at version
+    0.1.0, the only two lines `uv lock` changes after this rename. Raises
+    `ValueError` when the entry is missing or appears more than once, so a
+    lock this cannot rewrite stops the rename before anything is written."""
+    old_name = re.escape(_normalized(OLD_SLUG))
+    pattern = re.compile(
+        r'(?m)^(\[\[package\]\]\nname = )"' + old_name + r'"\nversion = "[^"]*"\n'
+        r'(source = \{ editable = "\." \})$'
+    )
+    if len(pattern.findall(lock_text)) != 1:
+        raise ValueError(f"uv.lock does not have exactly one root package entry named {OLD_SLUG!r}")
+    return pattern.sub(
+        lambda m: f'{m.group(1)}"{_normalized(new_slug)}"\nversion = "0.1.0"\n{m.group(2)}',
+        lock_text,
+    )
+
+
 def _already_renamed() -> bool:
     return not (ROOT / "src" / OLD_PACKAGE).is_dir()
 
@@ -118,6 +143,15 @@ def main(argv: list[str] | None = None) -> int:
     new_script = f"{thing}-build"
     new_slug = f"{company}-cem-{thing}"
 
+    # Read and rewritten in memory first: a lock this cannot rewrite must
+    # stop the rename before any file has changed.
+    lock_path = ROOT / "uv.lock"
+    try:
+        new_lock = _relock_root(lock_path.read_text(), new_slug)
+    except (OSError, ValueError) as exc:
+        _fail(f"cannot rename the root package in uv.lock: {exc}")
+        return 1
+
     # ---- the package rename ---------------------------------------------
     (ROOT / "src" / OLD_PACKAGE).rename(ROOT / "src" / new_package)
 
@@ -161,6 +195,9 @@ def main(argv: list[str] | None = None) -> int:
         _fail("ci.yml's package-name: line was not found (or matched more than once)")
         return 1
     ci_yml.write_text(ci_text)
+
+    # ---- uv.lock: the root package, so `uv sync --locked` still passes ----
+    lock_path.write_text(new_lock)
 
     # ---- release history reset -------------------------------------------
     for fragment in (ROOT / "changelog.d").glob("*.md"):
