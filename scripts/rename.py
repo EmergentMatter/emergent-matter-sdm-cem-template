@@ -45,6 +45,9 @@ OLD_SLUG = "emergent-matter-sdm-cem-template"
 #: name baked in past the point anyone can change it.
 DEFAULT_COMPANY = "emergent-matter"
 
+#: The version a renamed CEM starts at, in `pyproject.toml` and in `uv.lock`.
+FIRST_VERSION = "0.1.0"
+
 #: Directories whose *.py files get the package-name rename. examples/ sits
 #: on pyproject.toml's pytest pythonpath and is exercised by its own test,
 #: on the same footing as src/ and tests/.
@@ -80,19 +83,24 @@ def _normalized(name: str) -> str:
 
 
 def _relock_root(lock_text: str, new_slug: str) -> str:
-    """`uv.lock` with its root package entry renamed to `new_slug` at version
-    0.1.0, the only two lines `uv lock` changes after this rename. Raises
-    `ValueError` when the entry is missing or appears more than once, so a
-    lock this cannot rewrite stops the rename before anything is written."""
+    """`uv.lock` with its root package entry renamed to `new_slug` at
+    `FIRST_VERSION`, the only two lines `uv lock` changes after this rename.
+    Raises `ValueError` when the entry is missing or appears more than once, so
+    a lock this cannot rewrite stops the rename before anything is written."""
     old_name = re.escape(_normalized(OLD_SLUG))
+    # `\r?\n` and a lock read with its line endings intact: a Windows checkout
+    # may have turned them into CRLF, which uv accepts.
     pattern = re.compile(
-        r'(?m)^(\[\[package\]\]\nname = )"' + old_name + r'"\nversion = "[^"]*"\n'
-        r'(source = \{ editable = "\." \})$'
+        r'(?m)^(\[\[package\]\]\r?\nname = )"' + old_name + r'"(\r?\n)version = "[^"]*"(\r?\n)'
+        r'(source = \{ editable = "\." \}\r?)$'
     )
     if len(pattern.findall(lock_text)) != 1:
         raise ValueError(f"uv.lock does not have exactly one root package entry named {OLD_SLUG!r}")
     return pattern.sub(
-        lambda m: f'{m.group(1)}"{_normalized(new_slug)}"\nversion = "0.1.0"\n{m.group(2)}',
+        lambda m: (
+            f'{m.group(1)}"{_normalized(new_slug)}"{m.group(2)}'
+            f'version = "{FIRST_VERSION}"{m.group(3)}{m.group(4)}'
+        ),
         lock_text,
     )
 
@@ -147,7 +155,7 @@ def main(argv: list[str] | None = None) -> int:
     # stop the rename before any file has changed.
     lock_path = ROOT / "uv.lock"
     try:
-        new_lock = _relock_root(lock_path.read_text(), new_slug)
+        new_lock = _relock_root(lock_path.read_bytes().decode("utf-8"), new_slug)
     except (OSError, ValueError) as exc:
         _fail(f"cannot rename the root package in uv.lock: {exc}")
         return 1
@@ -170,7 +178,7 @@ def main(argv: list[str] | None = None) -> int:
     text = text.replace(OLD_PACKAGE, new_package)  # packages=, version_files, script value
     text = text.replace(OLD_SCRIPT, new_script)  # [project.scripts] key
     text = text.replace(OLD_SLUG, new_slug)  # [project].name, [project.urls]
-    text = re.sub(r'(?m)^version = ".*"$', 'version = "0.1.0"', text, count=1)
+    text = re.sub(r'(?m)^version = ".*"$', f'version = "{FIRST_VERSION}"', text, count=1)
     pyproject.write_text(text)
 
     # ---- ci.yml: the rest of the repo slug -------------------------------
@@ -197,7 +205,7 @@ def main(argv: list[str] | None = None) -> int:
     ci_yml.write_text(ci_text)
 
     # ---- uv.lock: the root package, so `uv sync --locked` still passes ----
-    lock_path.write_text(new_lock)
+    lock_path.write_bytes(new_lock.encode("utf-8"))
 
     # ---- release history reset -------------------------------------------
     for fragment in (ROOT / "changelog.d").glob("*.md"):

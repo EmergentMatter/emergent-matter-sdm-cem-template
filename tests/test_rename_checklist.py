@@ -364,17 +364,24 @@ def test_the_lockfile_root_entry_follows_the_rename(tmp_path: Path) -> None:
 
     assert _run_rename(dst).returncode == 0
 
+    project = tomllib.loads((dst / "pyproject.toml").read_text())["project"]
     entry = _root_lock_entry(dst / "uv.lock")
     assert entry["name"] == NEW_SLUG
-    assert entry["version"] == "0.1.0"
+    assert entry["version"] == project["version"]
+    new_lock = (dst / "uv.lock").read_text()
     changed = [
         line
         for line in difflib.unified_diff(
-            old_lock.splitlines(), (dst / "uv.lock").read_text().splitlines(), lineterm="", n=0
+            old_lock.splitlines(), new_lock.splitlines(), lineterm="", n=0
         )
         if line[:1] in "+-" and not line.startswith(("+++", "---"))
     ]
-    assert len(changed) == 4, changed  # two lines out, two in: the name and the version
+    assert changed == [
+        f'-name = "{OLD_SLUG}"',
+        '-version = "1.0.0"',
+        f'+name = "{NEW_SLUG}"',
+        f'+version = "{project["version"]}"',
+    ]
 
 
 def test_the_lockfile_uses_the_normalised_name_for_an_underscored_thing(tmp_path: Path) -> None:
@@ -389,16 +396,34 @@ def test_the_lockfile_uses_the_normalised_name_for_an_underscored_thing(tmp_path
     )
 
 
-@pytest.mark.parametrize("damage", ["missing", "twice"])
+def _entry_block(lock: str) -> str:
+    start = lock.index("[[package]]\nname = " + f'"{OLD_SLUG}"')
+    end = lock.index("\n[[package]]", start + 1)
+    return lock[start:end]
+
+
+def _damage(lock: str, kind: str) -> str:
+    block = _entry_block(lock)
+    if kind == "missing":
+        return lock.replace(block + "\n", "")
+    if kind == "twice":
+        return lock + "\n" + block + "\n"
+    if kind == "version line gone":
+        return lock.replace(block, block.replace('version = "1.0.0"\n', "", 1))
+    if kind == "extra key":
+        return lock.replace(block, block.replace("source =", 'extra = "x"\nsource =', 1))
+    if kind == "crlf":
+        return lock.replace("\n", "\r\n")
+    raise AssertionError(kind)
+
+
+@pytest.mark.parametrize("kind", ["missing", "twice", "version line gone", "extra key"])
 def test_a_lockfile_the_script_cannot_rewrite_stops_it_before_anything_changes(
-    tmp_path: Path, damage: str
+    tmp_path: Path, kind: str
 ) -> None:
     dst = tmp_path / "renamed"
     _copy_tree(dst)
-    lock = (dst / "uv.lock").read_text()
-    block = lock[lock.index("[[package]]\nname = " + f'"{OLD_SLUG}"') :].split("\n\n", 1)[0]
-    lock = lock.replace(block, "") if damage == "missing" else lock + "\n\n" + block + "\n"
-    (dst / "uv.lock").write_text(lock)
+    (dst / "uv.lock").write_bytes(_damage((dst / "uv.lock").read_text(), kind).encode())
     before = {p: p.read_bytes() for p in dst.rglob("*") if p.is_file()}
 
     result = _run_rename(dst)
@@ -408,18 +433,78 @@ def test_a_lockfile_the_script_cannot_rewrite_stops_it_before_anything_changes(
     assert {p: p.read_bytes() for p in dst.rglob("*") if p.is_file()} == before
 
 
-def test_uv_accepts_the_renamed_lockfile_as_it_stands(tmp_path: Path) -> None:
-    """The oracle is `uv` itself: a lock that `uv lock --check` accepts is one
-    `uv sync --locked` accepts. Skipped without `uv`, but not in CI."""
-    uv = shutil.which("uv")
-    if uv is None:
-        if os.environ.get("CI"):
-            pytest.fail("uv is required in CI to check the renamed lockfile")
-        pytest.skip("uv is not on PATH")
+def test_a_look_alike_package_in_the_lock_is_left_alone(tmp_path: Path) -> None:
+    """The entry is found by its name and by being the editable root, so a
+    package with a longer name, or one with the same name from an index, is not
+    the root and is not rewritten."""
     dst = tmp_path / "renamed"
     _copy_tree(dst)
+    lock = (dst / "uv.lock").read_text()
+    extra = (
+        f'\n[[package]]\nname = "{OLD_SLUG}-extras"\nversion = "1.0.0"\n'
+        f'source = {{ editable = "." }}\n\n[[package]]\nname = "{OLD_SLUG}"\n'
+        'version = "2.0.0"\nsource = { registry = "https://example.invalid/simple" }\n'
+    )
+    (dst / "uv.lock").write_text(lock + extra)
+
     assert _run_rename(dst).returncode == 0
+
+    after = (dst / "uv.lock").read_text()
+    assert f'name = "{OLD_SLUG}-extras"' in after
+    assert f'name = "{OLD_SLUG}"\nversion = "2.0.0"' in after
+    assert f'name = "{NEW_SLUG}"' in after
+
+
+def _uv() -> str | None:
+    uv = shutil.which("uv")
+    if uv is None and os.environ.get("CI"):
+        pytest.fail("uv is required in CI to check the renamed lockfile")
+    if uv is None:
+        pytest.skip("uv is not on PATH")
+    return uv
+
+
+@pytest.mark.parametrize(
+    ("thing", "company"), [(THING, None), ("my_chair", None), ("ab", "my-co-2")]
+)
+def test_uv_accepts_the_renamed_lockfile_as_it_stands(
+    tmp_path: Path, thing: str, company: str | None
+) -> None:
+    """The oracle is `uv` itself: a lock that `uv lock --check` accepts is one
+    `uv sync --locked` accepts."""
+    uv = _uv()
+    dst = tmp_path / "renamed"
+    _copy_tree(dst)
+    assert _run_rename(dst, thing=thing, company=company).returncode == 0
 
     result = subprocess.run([uv, "lock", "--check"], cwd=dst, capture_output=True, text=True)
 
     assert result.returncode == 0, result.stderr
+
+
+def test_the_oracle_can_fail(tmp_path: Path) -> None:
+    """Put the template's own lock back after the rename: `uv lock --check`
+    must object, or the test above proves nothing."""
+    uv = _uv()
+    dst = tmp_path / "renamed"
+    _copy_tree(dst)
+    original = (dst / "uv.lock").read_bytes()
+    assert _run_rename(dst).returncode == 0
+    (dst / "uv.lock").write_bytes(original)
+
+    result = subprocess.run([uv, "lock", "--check"], cwd=dst, capture_output=True, text=True)
+
+    assert result.returncode != 0
+
+
+def test_a_lockfile_with_windows_line_endings_is_rewritten_and_keeps_them(tmp_path: Path) -> None:
+    dst = tmp_path / "renamed"
+    _copy_tree(dst)
+    original = (dst / "uv.lock").read_bytes().replace(b"\n", b"\r\n")
+    (dst / "uv.lock").write_bytes(original)
+
+    assert _run_rename(dst).returncode == 0
+
+    after = (dst / "uv.lock").read_bytes()
+    assert b"\n" not in after.replace(b"\r\n", b"")
+    assert _root_lock_entry(dst / "uv.lock")["name"] == NEW_SLUG
