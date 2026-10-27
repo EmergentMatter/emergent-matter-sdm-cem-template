@@ -62,6 +62,18 @@ parameters get "extracted" later by reading the tree: at which point the
 derived relationships are already lost, because a tree records `9.0`, not
 `outer_radius - wall_thickness`.
 
+## The output folder is not scratch
+
+People open `output/*.sdm` in the Fabrication Navigator and colour parts,
+place planes and save section views into them. Never delete `output/`
+before a rebuild; overwrite files and leave the rest. If this CEM stamps a
+revision into its file names, each build copies `metadata.viewer` from the
+newest earlier file of the same kind into the new file (and the
+`<file>.viewer.json` and `<part>.sdm.appearance.json` beside it), keeping
+instance ids stable so the keys still match. The playbook's
+`conventions/cem-output-files.md` has the rule and a reference
+implementation.
+
 ## Never store a derived value
 
 `d_bore_radius` is `@property`. So is anything computed from declared fields.
