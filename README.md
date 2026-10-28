@@ -151,8 +151,9 @@ the declaration its only option is to write edited values into the `.sdm` and
 hope the generator reads its own output. `harness.py` stamps the declaration
 and `check_contract.py` fails without it.
 
-`harness.py` stamps `metadata.generator` with the argv and cwd that produced
-the file. Without it the `.sdm` can be rendered and never re-derived.
+`harness.py` stamps `metadata.generator` with the command that produced the
+file, as `uv run --frozen <script> ...` with a `cwd` relative to the `.sdm`, so
+the file re-emits on any machine. Without it the `.sdm` can be rendered and never re-derived.
 
 **Read [`docs/traps.md`](docs/traps.md) before writing geometry.** It is the
 list of mistakes this stack lets you make that produce a document that

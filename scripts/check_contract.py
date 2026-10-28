@@ -46,7 +46,7 @@ import sys
 import tempfile
 import time
 import tomllib
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 ROOT = Path(__file__).resolve().parents[1]
 OK, BAD = "  ok   ", " FAIL  "
@@ -79,6 +79,11 @@ def manifest() -> dict:
 def run(args: list[str]) -> subprocess.CompletedProcess:
     """Invoke the CEM's entry point the way a tool would."""
     return subprocess.run(["uv", "run", SCRIPT, *args], cwd=ROOT, capture_output=True, text=True)
+
+
+def _is_absolute(s: str) -> bool:
+    """An absolute path on any OS the document may be opened on."""
+    return Path(s).is_absolute() or PureWindowsPath(s).is_absolute()
 
 
 def entry_script() -> str:
@@ -228,14 +233,33 @@ def _checks(tmp: Path) -> int:
     # --- the recorded generator ---------------------------------------------
     gen = doc.get("metadata", {}).get("generator") or {}
     check(bool(gen.get("argv")), "the document records a generator command")
+    # The engine resolves `cwd` against the .sdm and appends its own `--out`,
+    # so a committed document is only replayable elsewhere if it names no
+    # machine: no absolute path in the command, and a relative `cwd`.
+    recorded = [str(a) for a in gen.get("argv", [])]
+    absolute = [a for a in recorded if _is_absolute(a)]
     check(
-        Path(gen.get("cwd", "/nonexistent")).exists(), "the recorded working directory still exists"
+        not absolute and not _is_absolute(gen.get("cwd", "")),
+        "the recorded generator names no absolute path",
+        ""
+        if not absolute and not _is_absolute(gen.get("cwd", ""))
+        else f"{absolute[:2] or [gen.get('cwd')]} only exists on the machine that built it",
+    )
+    check(
+        (out.parent / gen.get("cwd", "/nonexistent")).resolve() == ROOT,
+        "the recorded working directory, read from the .sdm, is this repo",
     )
 
-    replay = list(gen.get("argv", [])[1:])
-    if "--out" in replay:
+    launcher = ["uv", "run", "--frozen"]
+    replay = recorded[len(launcher) + 1 :] if recorded[: len(launcher)] == launcher else None
+    check(
+        replay is not None and recorded[len(launcher)] == SCRIPT,
+        f"the recorded command is `{' '.join([*launcher, SCRIPT])}`",
+        "" if replay is not None else f"records {recorded[:4]}",
+    )
+    if replay is not None:
         again = tmp / "replay.sdm"
-        replay[replay.index("--out") + 1] = str(again)
+        replay = [*replay, "--out", str(again)]
         # Snapshot the repo around the replay. A generator that writes anything
         # besides --out corrupts the working tree on every slider release, and
         # no other check here looks at the filesystem it ran in.

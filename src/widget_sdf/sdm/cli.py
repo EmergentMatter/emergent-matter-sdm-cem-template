@@ -41,8 +41,14 @@ def _coerce(field_name: str, raw: str) -> bool | int | float | str:
     return float(raw)
 
 
+#: The console script, as `[project.scripts]` names it. `scripts/rename.py`
+#: rewrites it with the rest of the CEM. It is recorded in the document's
+#: generator command, so it must not depend on how this process was launched.
+SCRIPT = "widget-build"
+
+
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(description="Build the widget as a .sdm")
+    ap = argparse.ArgumentParser(prog=SCRIPT, description="Build the widget as a .sdm")
     ap.add_argument("--out", required=True, type=Path, help="output .sdm path")
     ap.add_argument(
         "--set",
@@ -108,7 +114,7 @@ def main(argv: list[str] | None = None) -> int:
 
     # Record the arguments ACTUALLY used, not sys.argv: main() is called
     # in-process by the tests, where sys.argv is pytest's command line.
-    recorded = [sys.argv[0]] + (list(argv) if argv is not None else sys.argv[1:])
+    recorded = [SCRIPT] + (list(argv) if argv is not None else sys.argv[1:])
     path = save_sdm(
         build_widget_part(params, name=args.name),
         args.name,

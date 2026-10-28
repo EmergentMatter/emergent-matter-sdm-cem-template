@@ -106,6 +106,16 @@ recorded command *and* when you move the CEM on disk. Renaming the directory
 invalidates an approval that was working a minute ago, and the refusal looks
 identical to never having approved at all.
 
+**The recorded command must name no machine.** A `.sdm` is committed and
+opened elsewhere, and the engine runs `argv` as written, with `cwd` resolved
+against the file. `sys.argv[0]` is the absolute path of the console script in
+one developer's venv and `Path.cwd()` is their checkout, so recording either
+makes every re-emit elsewhere fail with `authoring command not found`.
+`harness.py` records `uv run --frozen <script>` and a `cwd` relative to the
+`.sdm`. Bare `python` is not a substitute: the process that re-emits has its
+own interpreter, not this CEM's venv. `check_contract.py` fails on an absolute
+path or an absolute `cwd`.
+
 **Declare the flags the CLI takes.** A tool driving your CEM cannot tell from
 the recorded argv whether it accepts `--out` and `--set`. Undeclared, the
 tool's only option is to write edited values into your `.sdm` and re-run the
@@ -116,8 +126,8 @@ geometry.
 
 ```python
 part.metadata["generator"] = {
-    "argv": [...],
-    "cwd": str(Path.cwd()),
+    "argv": ["uv", "run", "--frozen", "<script>", ...],
+    "cwd": "..",
     "accepts": ["--out", "--set"],
 }
 ```

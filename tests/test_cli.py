@@ -11,12 +11,12 @@ caught only by driving a real viewer against a real part.
 from __future__ import annotations
 
 import json
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 import pytest
 
 from widget_sdf.parameters import WidgetParameters
-from widget_sdf.sdm.cli import main
+from widget_sdf.sdm.cli import SCRIPT, main
 
 
 def test_out_and_set_are_both_accepted(tmp_path):
@@ -112,7 +112,7 @@ def test_the_recorded_generator_is_idempotent(tmp_path):
     assert main(["--out", str(out), "--set", "d_outer_radius=14"]) == 0
     argv = json.loads(out.read_text())["metadata"]["generator"]["argv"]
     assert not (set(argv) & NON_REPLAYABLE_FLAGS), argv
-    assert "--out" in argv, "the command must still be re-runnable"
+    assert argv[:4] == ["uv", "run", "--frozen", SCRIPT], "the command must still be re-runnable"
 
 
 def test_rebuilding_from_the_recorded_command_reproduces_the_document(tmp_path):
@@ -124,9 +124,8 @@ def test_rebuilding_from_the_recorded_command_reproduces_the_document(tmp_path):
 
     argv = doc["metadata"]["generator"]["argv"]
     second = tmp_path / "b.sdm"
-    replay = list(argv[1:])
-    replay[replay.index("--out") + 1] = str(second)
-    assert main(replay) == 0
+    # What a re-emit does: the recorded command with its own --out appended.
+    assert main([*argv[4:], "--out", str(second)]) == 0
 
     after = json.loads(second.read_text())["params"]
     for k, d_v in before.items():
@@ -134,3 +133,37 @@ def test_rebuilding_from_the_recorded_command_reproduces_the_document(tmp_path):
             f"{k} changed on replay: a viewer would see this as an edit and "
             "request another rebuild, forever"
         )
+
+
+def _generator(tmp_path: Path, *args: str) -> dict:
+    out = tmp_path / "output" / "p.sdm"
+    assert main(["--out", str(out), *args]) == 0
+    return json.loads(out.read_text())["metadata"]["generator"]
+
+
+def test_the_recorded_generator_names_no_absolute_path(tmp_path):
+    """A committed .sdm is opened on other machines and in sandboxes. A path
+    into the builder's venv fails there with 'authoring command not found',
+    and the engine appends its own --out, so the recorded one is dropped."""
+    gen = _generator(tmp_path, "--set", "d_outer_radius=14")
+    assert gen["argv"] == ["uv", "run", "--frozen", SCRIPT, "--set", "d_outer_radius=14"]
+    for arg in gen["argv"]:
+        assert not Path(arg).is_absolute()
+        assert not PureWindowsPath(arg).is_absolute()
+    assert str(tmp_path) not in json.dumps(gen)
+
+
+def test_the_recorded_cwd_is_relative_to_the_sdm(tmp_path):
+    """The engine resolves `cwd` against the .sdm, so it must lead from the
+    file back to this repo, not name where the repo happens to be."""
+    gen = _generator(tmp_path)
+    assert not Path(gen["cwd"]).is_absolute()
+    assert "\\" not in gen["cwd"]
+    assert (tmp_path / "output" / gen["cwd"]).resolve() == Path.cwd().resolve()
+
+
+def test_an_equals_form_out_is_dropped_too(tmp_path):
+    out = tmp_path / "p.sdm"
+    assert main([f"--out={out}"]) == 0
+    gen = json.loads(out.read_text())["metadata"]["generator"]
+    assert gen["argv"] == ["uv", "run", "--frozen", SCRIPT]

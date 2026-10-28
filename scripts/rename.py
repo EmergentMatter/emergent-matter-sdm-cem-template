@@ -180,6 +180,7 @@ def _plan_rewrites(new_package: str, new_script: str, new_slug: str) -> dict[Pat
         for path in (ROOT / sub).rglob("*.py"):
             text = _read(path)
             new_text = _replace_token(text, OLD_PACKAGE, new_package)
+            new_text = _replace_token(new_text, OLD_SCRIPT, new_script)  # cli.py's SCRIPT
             if new_text != text:
                 rewrites[path] = new_text
 
