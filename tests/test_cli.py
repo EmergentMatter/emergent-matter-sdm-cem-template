@@ -92,7 +92,8 @@ def test_the_generator_records_a_command_that_can_be_re_run(tmp_path):
     out = tmp_path / "p.sdm"
     main(["--out", str(out), "--set", "d_outer_radius=14"])
     gen = json.loads(out.read_text())["metadata"]["generator"]
-    assert gen["argv"] and Path(gen["cwd"]).exists()
+    # `cwd` is relative to the .sdm's folder, the way the viewer resolves it.
+    assert gen["argv"] and (out.parent / gen["cwd"]).is_dir()
 
 
 def test_the_recorded_generator_is_idempotent(tmp_path):
