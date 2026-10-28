@@ -69,7 +69,8 @@ Then, in this order:
 1. **Rename the template to your CEM: `python3 scripts/rename.py <thing>`.**
    Renames `src/widget_sdf/` and the console script `widget-build`, fixes
    every import and manifest reference that names either, renames the repo
-   slug everywhere `pyproject.toml` and `ci.yml` carry it, and resets the
+   slug everywhere `pyproject.toml` and `ci.yml` carry it, renames the root
+   package in `uv.lock` so `uv sync --locked` still passes, and resets the
    release history (step 2, below). `<thing>` becomes a Python package
    name, so it has to be lowercase snake_case. The new repo slug is
    `<company-name>-cem-<thing>`, where `<company-name>` defaults to
