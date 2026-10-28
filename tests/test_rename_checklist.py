@@ -506,3 +506,108 @@ def test_a_lockfile_with_windows_line_endings_is_rewritten_and_keeps_them(tmp_pa
     after = (dst / "uv.lock").read_bytes()
     assert b"\n" not in after.replace(b"\r\n", b"")
     assert _root_lock_entry(dst / "uv.lock")["name"] == NEW_SLUG
+
+
+def _snapshot(tree: Path) -> dict[Path, bytes]:
+    return {p: p.read_bytes() for p in tree.rglob("*") if p.is_file()}
+
+
+def _refused_and_untouched(dst: Path, fragment: str) -> None:
+    """Run the rename and require a refusal naming `fragment` that leaves
+    every file byte-identical, `src/` unmoved and the script still present."""
+    before = _snapshot(dst)
+
+    result = _run_rename(dst)
+
+    assert result.returncode == 1
+    assert fragment in result.stderr
+    assert _snapshot(dst) == before
+    assert (dst / "src" / OLD_PACKAGE).is_dir()
+    assert not (dst / "src" / NEW_PACKAGE).exists()
+
+
+def _edit(dst: Path, relative: str, old: str, new: str) -> None:
+    path = dst / relative
+    text = path.read_text()
+    assert old in text, f"{relative} no longer contains {old!r}; update the test"
+    path.write_text(text.replace(old, new, 1))
+
+
+@pytest.mark.parametrize(
+    ("old", "new"),
+    [
+        (f'name = "{OLD_SLUG}"', f'title = "{OLD_SLUG}"'),
+        (f'name = "{OLD_SLUG}"', 'name = "someone-elses-package"'),
+    ],
+    ids=["name line gone", "name is not the template slug"],
+)
+def test_a_bad_project_name_stops_the_script_before_anything_changes(
+    tmp_path: Path, old: str, new: str
+) -> None:
+    dst = tmp_path / "renamed"
+    _copy_tree(dst)
+    _edit(dst, "pyproject.toml", old, new)
+
+    _refused_and_untouched(dst, "[project].name")
+
+
+@pytest.mark.parametrize("kind", ["missing", "twice", "other value"])
+def test_a_bad_ci_package_name_stops_the_script_before_anything_changes(
+    tmp_path: Path, kind: str
+) -> None:
+    dst = tmp_path / "renamed"
+    _copy_tree(dst)
+    line = f"          package-name: {OLD_SLUG}\n"
+    ci = dst / ".github" / "workflows" / "ci.yml"
+    text = ci.read_text()
+    assert line in text
+    damaged = {
+        "missing": text.replace(line, ""),
+        "twice": text.replace(line, line + line),
+        "other value": text.replace(line, "          package-name: something-else\n"),
+    }[kind]
+    ci.write_text(damaged)
+
+    _refused_and_untouched(dst, "package-name")
+
+
+def test_an_existing_destination_package_stops_the_script_before_anything_changes(
+    tmp_path: Path,
+) -> None:
+    dst = tmp_path / "renamed"
+    _copy_tree(dst)
+    (dst / "src" / NEW_PACKAGE).mkdir()
+    (dst / "src" / NEW_PACKAGE / "keep.txt").write_text("mine")
+
+    before = _snapshot(dst)
+    result = _run_rename(dst)
+
+    assert result.returncode == 1
+    assert f"src/{NEW_PACKAGE}/ already exists" in result.stderr
+    assert _snapshot(dst) == before
+    assert (dst / "src" / OLD_PACKAGE).is_dir()
+
+
+def test_a_source_file_that_cannot_be_read_stops_the_script_before_anything_changes(
+    tmp_path: Path,
+) -> None:
+    dst = tmp_path / "renamed"
+    _copy_tree(dst)
+    (dst / "tests" / "bad_bytes.py").write_bytes(b"\xff\xfe not utf-8 \x80")
+
+    before = _snapshot(dst)
+    result = _run_rename(dst)
+
+    assert result.returncode == 1
+    assert result.stderr.startswith("error:")
+    assert _snapshot(dst) == before
+    assert (dst / "src" / OLD_PACKAGE).is_dir()
+
+
+def test_a_successful_rename_leaves_no_temporary_files_behind(tmp_path: Path) -> None:
+    dst = tmp_path / "renamed"
+    _copy_tree(dst)
+
+    assert _run_rename(dst).returncode == 0
+
+    assert not list(dst.rglob("*.rename-tmp"))

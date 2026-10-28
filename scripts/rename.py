@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import argparse
 import re
+import shutil
 import sys
 from pathlib import Path
 
@@ -105,6 +106,96 @@ def _relock_root(lock_text: str, new_slug: str) -> str:
     )
 
 
+def _write_atomic(path: Path, text: str) -> None:
+    """Replace `path` with `text` in one step: the new content goes to a
+    sibling file first and is moved over the old one, so the file is either
+    entirely old or entirely new. A disk error leaves a stray `.rename-tmp`
+    file at worst, never a truncated source file."""
+    tmp = path.with_name(path.name + ".rename-tmp")
+    try:
+        tmp.write_bytes(text.encode("utf-8"))
+        shutil.copymode(path, tmp)
+        tmp.replace(path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
+
+
+def _plan_rewrites(new_package: str, new_script: str, new_slug: str) -> dict[Path, str]:
+    """The new contents of every file the rename rewrites, keyed by path,
+    with nothing written. Raises `ValueError` (or `OSError` for an
+    unreadable file) when the tree is not one this script can rename, so
+    the caller stops before any file has changed."""
+    if new_package != OLD_PACKAGE and (ROOT / "src" / new_package).exists():
+        raise ValueError(
+            f"src/{new_package}/ already exists, so src/{OLD_PACKAGE}/ cannot move there"
+        )
+
+    rewrites: dict[Path, str] = {}
+
+    for sub in PACKAGE_DIRS:
+        for path in (ROOT / sub).rglob("*.py"):
+            text = path.read_text()
+            if OLD_PACKAGE in text:
+                rewrites[path] = text.replace(OLD_PACKAGE, new_package)
+
+    cem_toml = ROOT / "cem.toml"
+    rewrites[cem_toml] = cem_toml.read_text().replace(OLD_PACKAGE, new_package)
+
+    # ---- pyproject.toml: package, console script, repo slug, version ----
+    pyproject = ROOT / "pyproject.toml"
+    text = pyproject.read_text()
+    text = text.replace(OLD_PACKAGE, new_package)  # packages=, version_files, script value
+    text = text.replace(OLD_SCRIPT, new_script)  # [project.scripts] key
+    text = text.replace(OLD_SLUG, new_slug)  # [project].name, [project.urls]
+    text = re.sub(r'(?m)^version = ".*"$', f'version = "{FIRST_VERSION}"', text, count=1)
+    rewrites[pyproject] = text
+
+    # [project].name has to be the slug the replace above just wrote. The
+    # lock's root entry and ci.yml's package-name are renamed to the same
+    # slug, so a name that is anything else leaves the three disagreeing.
+    project_table = text.split("\n[", 1)[0]  # up to [project.scripts]/[project.urls]
+    name_match = re.search(r'(?m)^name = "([^"]+)"', project_table)
+    if not name_match:
+        raise ValueError("could not find [project].name in pyproject.toml")
+    project_name = name_match.group(1)
+    if project_name != new_slug:
+        raise ValueError(
+            f"pyproject.toml's [project].name is {project_name!r}, not the template's "
+            f"{OLD_SLUG!r}, so it cannot be renamed to {new_slug!r}"
+        )
+
+    # ---- ci.yml: the rest of the repo slug -------------------------------
+    # package-name == [project].name is the invariant that actually breaks
+    # something (build's verify-wheel step) rather than just reading wrong,
+    # so the line is found, checked against the slug it should hold, and
+    # rewritten explicitly instead of trusted to survive the blanket replace.
+    ci_yml = ROOT / ".github" / "workflows" / "ci.yml"
+    ci_old = ci_yml.read_text()
+    package_names = re.findall(r"(?m)^\s*package-name:\s*(\S+)\s*$", ci_old)
+    if package_names != [OLD_SLUG]:
+        raise ValueError(
+            f"ci.yml must have exactly one package-name: line, set to {OLD_SLUG!r}; "
+            f"found {package_names!r}"
+        )
+    ci_text, n_subs = re.subn(
+        r"(?m)^(\s*package-name:\s*)\S+\s*$",
+        rf"\g<1>{project_name}",
+        ci_old.replace(OLD_SLUG, new_slug),
+    )
+    assert n_subs == 1
+    rewrites[ci_yml] = ci_text
+
+    # ---- uv.lock: the root package, so `uv sync --locked` still passes ----
+    lock_path = ROOT / "uv.lock"
+    try:
+        rewrites[lock_path] = _relock_root(lock_path.read_bytes().decode("utf-8"), new_slug)
+    except ValueError as exc:
+        raise ValueError(f"cannot rename the root package in uv.lock: {exc}") from exc
+
+    return rewrites
+
+
 def _already_renamed() -> bool:
     return not (ROOT / "src" / OLD_PACKAGE).is_dir()
 
@@ -151,61 +242,30 @@ def main(argv: list[str] | None = None) -> int:
     new_script = f"{thing}-build"
     new_slug = f"{company}-cem-{thing}"
 
-    # Read and rewritten in memory first: a lock this cannot rewrite must
-    # stop the rename before any file has changed.
-    lock_path = ROOT / "uv.lock"
+    # Everything that can fail on the tree's contents happens here, before
+    # a single file changes: every input is read and every new file is
+    # computed in memory, and every check runs against those results.
     try:
-        new_lock = _relock_root(lock_path.read_bytes().decode("utf-8"), new_slug)
+        rewrites = _plan_rewrites(new_package, new_script, new_slug)
     except (OSError, ValueError) as exc:
-        _fail(f"cannot rename the root package in uv.lock: {exc}")
+        _fail(str(exc))
         return 1
 
-    # ---- the package rename ---------------------------------------------
-    (ROOT / "src" / OLD_PACKAGE).rename(ROOT / "src" / new_package)
-
-    for sub in PACKAGE_DIRS:
-        for path in (ROOT / sub).rglob("*.py"):
-            text = path.read_text()
-            if OLD_PACKAGE in text:
-                path.write_text(text.replace(OLD_PACKAGE, new_package))
-
-    cem_toml = ROOT / "cem.toml"
-    cem_toml.write_text(cem_toml.read_text().replace(OLD_PACKAGE, new_package))
-
-    # ---- pyproject.toml: package, console script, repo slug, version ----
-    pyproject = ROOT / "pyproject.toml"
-    text = pyproject.read_text()
-    text = text.replace(OLD_PACKAGE, new_package)  # packages=, version_files, script value
-    text = text.replace(OLD_SCRIPT, new_script)  # [project.scripts] key
-    text = text.replace(OLD_SLUG, new_slug)  # [project].name, [project.urls]
-    text = re.sub(r'(?m)^version = ".*"$', f'version = "{FIRST_VERSION}"', text, count=1)
-    pyproject.write_text(text)
-
-    # ---- ci.yml: the rest of the repo slug -------------------------------
-    ci_yml = ROOT / ".github" / "workflows" / "ci.yml"
-    ci_text = ci_yml.read_text().replace(OLD_SLUG, new_slug)
-
-    # package-name == [project].name is the invariant that actually breaks
-    # something (build's verify-wheel step) rather than just reading wrong,
-    # so it is re-derived and enforced here instead of trusted to have
-    # survived the blanket slug replace above unchanged.
-    project_table = text.split("\n[", 1)[0]  # up to [project.scripts]/[project.urls]
-    name_match = re.search(r'(?m)^name = "([^"]+)"', project_table)
-    if not name_match:
-        _fail("could not find [project].name in the rewritten pyproject.toml")
-        return 1
-    project_name = name_match.group(1)
-
-    ci_text, n_subs = re.subn(
-        r"(?m)^(\s*package-name:\s*)\S+\s*$", rf"\g<1>{project_name}", ci_text
-    )
-    if n_subs != 1:
-        _fail("ci.yml's package-name: line was not found (or matched more than once)")
-        return 1
-    ci_yml.write_text(ci_text)
-
-    # ---- uv.lock: the root package, so `uv sync --locked` still passes ----
-    lock_path.write_bytes(new_lock.encode("utf-8"))
+    # ---- the writes -------------------------------------------------------
+    # Each file is replaced whole (see _write_atomic), so none is ever left
+    # half-written. Every rewrite except uv.lock is idempotent on a rerun, so
+    # they go first; uv.lock comes next, and the src/ move last, because
+    # that move is what flips _already_renamed(). A failure up to and
+    # including the uv.lock write leaves src/ in place, so a rerun is
+    # accepted and finishes the job; only a failure of the src/ move itself,
+    # after uv.lock has been written, leaves a tree the rerun cannot fix.
+    lock_path = ROOT / "uv.lock"
+    for path, text in rewrites.items():
+        if path != lock_path:
+            _write_atomic(path, text)
+    _write_atomic(lock_path, rewrites[lock_path])
+    if new_package != OLD_PACKAGE:
+        (ROOT / "src" / OLD_PACKAGE).rename(ROOT / "src" / new_package)
 
     # ---- release history reset -------------------------------------------
     for fragment in (ROOT / "changelog.d").glob("*.md"):
