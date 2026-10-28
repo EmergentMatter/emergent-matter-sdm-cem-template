@@ -412,8 +412,6 @@ def _damage(lock: str, kind: str) -> str:
         return lock.replace(block, block.replace('version = "1.0.0"\n', "", 1))
     if kind == "extra key":
         return lock.replace(block, block.replace("source =", 'extra = "x"\nsource =', 1))
-    if kind == "crlf":
-        return lock.replace("\n", "\r\n")
     raise AssertionError(kind)
 
 
