@@ -154,13 +154,59 @@ def test_the_recorded_generator_names_no_absolute_path(tmp_path):
     assert str(tmp_path) not in json.dumps(gen)
 
 
-def test_the_recorded_cwd_is_relative_to_the_sdm(tmp_path):
+@pytest.fixture
+def repo(tmp_path, monkeypatch):
+    """A stand-in project root, so a build can land inside it without
+    writing into this checkout."""
+    from widget_sdf.sdm import harness
+
+    root = tmp_path / "repo"
+    root.mkdir()
+    monkeypatch.setattr(harness, "PROJECT_ROOT", root)
+    return root
+
+
+def test_the_recorded_cwd_is_relative_to_the_sdm(repo):
     """The engine resolves `cwd` against the .sdm, so it must lead from the
     file back to this repo, not name where the repo happens to be."""
-    gen = _generator(tmp_path)
-    assert not Path(gen["cwd"]).is_absolute()
-    assert "\\" not in gen["cwd"]
-    assert (tmp_path / "output" / gen["cwd"]).resolve() == Path.cwd().resolve()
+    gen = _generator(repo)
+    assert gen["cwd"] == ".."
+    assert (repo / "output" / gen["cwd"]).resolve() == repo.resolve()
+
+
+def test_the_recorded_cwd_is_the_project_not_the_process_directory(repo, monkeypatch):
+    """`uv run --project <repo> widget-build` starts anywhere. Recording that
+    directory makes the re-emit fail with `Failed to spawn: widget-build`."""
+    elsewhere = repo.parent / "elsewhere"
+    elsewhere.mkdir()
+    monkeypatch.chdir(elsewhere)
+    out = repo / "output" / "nested" / "p.sdm"
+    assert main(["--out", str(out)]) == 0
+    gen = json.loads(out.read_text())["metadata"]["generator"]
+    assert gen["cwd"] == "../.."
+    assert (out.parent / gen["cwd"]).resolve() == repo.resolve()
+
+
+def test_an_sdm_outside_the_project_records_the_absolute_root_and_warns(repo, capsys):
+    """A relative path climbing out of the project names the machine just the
+    same, so say it plainly and tell the builder."""
+    gen = _generator(repo.parent / "away")
+    assert gen["cwd"] == repo.resolve().as_posix()
+    assert "only re-emit on this machine" in capsys.readouterr().err
+
+
+def test_no_relative_path_to_the_sdm_records_the_absolute_root(repo, monkeypatch, capsys):
+    """On Windows an --out on another drive has no relative path at all, and
+    `os.path.relpath` raises. That must not crash the build."""
+    from widget_sdf.sdm import harness
+
+    def no_relpath(*_):
+        raise ValueError("path is on mount 'D:', start on mount 'C:'")
+
+    monkeypatch.setattr(harness.os.path, "relpath", no_relpath)
+    gen = _generator(repo)
+    assert gen["cwd"] == repo.resolve().as_posix()
+    assert "only re-emit on this machine" in capsys.readouterr().err
 
 
 def test_an_equals_form_out_is_dropped_too(tmp_path):

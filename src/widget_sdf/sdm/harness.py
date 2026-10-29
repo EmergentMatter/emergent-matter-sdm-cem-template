@@ -6,12 +6,17 @@ viewer's `/reemit` reads exactly that to rebuild the part when a topology param
 changes; without it the file is a dead end that can be rendered and never
 re-derived.
 
-The record is PORTABLE: no absolute path, and `cwd` relative to the `.sdm`
-(the engine resolves it against the file). A `.sdm` is committed and shared,
-so a path into one machine's venv fails with "authoring command not found" on
+The record is PORTABLE: no absolute path, and `cwd` is this project's root
+relative to the `.sdm` (the engine resolves it against the file), whatever
+directory the build was started from. A `.sdm` is committed and shared, so a
+path into one machine's venv fails with "authoring command not found" on
 every other machine. The command is `uv run --frozen <script>`, which finds
 the project's own venv from `cwd` and runs the script from its locked
 dependencies.
+
+Only a `.sdm` inside the project can be portable. One written elsewhere (or on
+another Windows drive) records the absolute project root, re-emits only on
+this machine, and the build says so on stderr.
 
 The `/reemit` contract is `--out` AND `--set`. A CEM whose CLI takes only
 `--set` fails inside a subprocess, where the error is easy to lose.
@@ -32,12 +37,14 @@ __all__ = [
     "GENERATOR_LAUNCHER",
     "NON_REPLAYABLE_FLAGS",
     "OUTPUT_DIR",
+    "PROJECT_ROOT",
     "portable_generator_argv",
     "save_sdm",
     "stamped",
 ]
 
-OUTPUT_DIR = Path(__file__).resolve().parents[3] / "output"
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+OUTPUT_DIR = PROJECT_ROOT / "output"
 
 
 def stamped(name: str, ext: str) -> Path:
@@ -102,10 +109,32 @@ def portable_generator_argv(argv: list) -> list:
     return [*GENERATOR_LAUNCHER, script, *_without_out(_replayable_argv(list(argv[1:])))]
 
 
-def _relative_cwd(out: Path) -> str:
-    """The current directory as seen from the `.sdm`, the way the engine
-    resolves it. POSIX separators, so the same file reads the same everywhere."""
-    return Path(os.path.relpath(Path.cwd().resolve(), out.resolve().parent)).as_posix()
+def _recorded_cwd(out: Path) -> str:
+    """The project root as seen from the `.sdm`, the way the engine resolves it.
+
+    The project root, not `Path.cwd()`: the process may have been started
+    anywhere (`uv run --project <repo>`), and `uv run` only finds the script
+    from inside the project. POSIX separators, so the same file reads the same
+    everywhere.
+
+    A `.sdm` outside the project gets the absolute root instead: a relative
+    path climbing out of it would name the machine all the same, and on
+    Windows a different drive has no relative path at all.
+    """
+    root = PROJECT_ROOT.resolve()
+    parent = out.resolve().parent
+    if parent.is_relative_to(root):
+        try:
+            return Path(os.path.relpath(root, parent)).as_posix()
+        except ValueError:  # no relative path between them (Windows drives)
+            pass
+    print(
+        f"warning: {out} is outside {root}, so its generator records an absolute "
+        "path and will only re-emit on this machine. Build under the repo for a "
+        "portable file.",
+        file=sys.stderr,
+    )
+    return root.as_posix()
 
 
 def save_sdm(
@@ -126,7 +155,7 @@ def save_sdm(
         # own command line, so the document would record a generator that
         # rebuilds nothing. The CLI passes its own.
         "argv": portable_generator_argv(list(argv) if argv is not None else sys.argv),
-        "cwd": _relative_cwd(path),
+        "cwd": _recorded_cwd(path),
         # Which flags this CLI understands. A tool cannot tell from argv alone
         # whether a generator takes --out and --set; without the declaration
         # its only option is to stage edited values in the .sdm and rely on

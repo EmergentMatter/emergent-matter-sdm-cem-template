@@ -107,7 +107,11 @@ def main(argv: list[str] | None = None) -> int:
         print("error: uv is not installed; run scripts/doctor.py", file=sys.stderr)
         return 1
 
-    tmp = Path(tempfile.mkdtemp(prefix="cem-contract-"))
+    # Build under the repo: a .sdm written outside it records an absolute cwd
+    # by design. `output/` is ignored by git and the dot keeps `_tree_state`
+    # from reading these builds as side effects.
+    (ROOT / "output").mkdir(exist_ok=True)
+    tmp = Path(tempfile.mkdtemp(prefix=".contract-", dir=ROOT / "output"))
     try:
         return _checks(tmp)
     finally:
