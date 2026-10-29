@@ -83,24 +83,52 @@ def _normalized(name: str) -> str:
     return re.sub(r"[-_.]+", "-", name).lower()
 
 
+def _replace_token(text: str, old: str, new: str) -> str:
+    """`text` with every `old` that stands alone as a name replaced by `new`.
+    An `old` with a name character (`[A-Za-z0-9_-]`) on either side is part of
+    a longer name and is left alone, which is what makes the replacement
+    idempotent: `my_widget_sdf`, written by a first run for thing `my_widget`,
+    is not `widget_sdf` again on a rerun."""
+    return re.sub(r"(?<![A-Za-z0-9_-])" + re.escape(old) + r"(?![A-Za-z0-9_-])", new, text)
+
+
+#: ci.yml's `package-name:` line, with the value in group 2 and the line's
+#: trailing whitespace, `\r` included, in group 3 so a rewrite keeps it.
+_PACKAGE_NAME_LINE = re.compile(r"(?m)^([ \t]*package-name:[ \t]*)(\S+)([ \t]*\r?)$")
+
+
 def _relock_root(lock_text: str, new_slug: str) -> str:
     """`uv.lock` with its root package entry renamed to `new_slug` at
     `FIRST_VERSION`, the only two lines `uv lock` changes after this rename.
-    Raises `ValueError` when the entry is missing or appears more than once, so
-    a lock this cannot rewrite stops the rename before anything is written."""
+    An entry already named `new_slug` at `FIRST_VERSION` is accepted and comes
+    back unchanged, so a rerun after a failed write finishes the rename.
+    Raises `ValueError` when there is not exactly one root entry under either
+    name, or the renamed one is at another version, so a lock this cannot
+    rewrite stops the rename before anything is written."""
     old_name = re.escape(_normalized(OLD_SLUG))
+    new_name = re.escape(_normalized(new_slug))
     # `\r?\n` and a lock read with its line endings intact: a Windows checkout
     # may have turned them into CRLF, which uv accepts.
     pattern = re.compile(
-        r'(?m)^(\[\[package\]\]\r?\nname = )"' + old_name + r'"(\r?\n)version = "[^"]*"(\r?\n)'
-        r'(source = \{ editable = "\." \}\r?)$'
+        r'(?m)^(\[\[package\]\]\r?\nname = )"(' + old_name + "|" + new_name + r')"(\r?\n)'
+        r'version = "([^"]*)"(\r?\n)(source = \{ editable = "\." \}\r?)$'
     )
-    if len(pattern.findall(lock_text)) != 1:
-        raise ValueError(f"uv.lock does not have exactly one root package entry named {OLD_SLUG!r}")
+    entries = pattern.findall(lock_text)
+    if len(entries) != 1:
+        raise ValueError(
+            f"uv.lock does not have exactly one root package entry named {OLD_SLUG!r} "
+            f"or {_normalized(new_slug)!r}"
+        )
+    _, name, _, version, _, _ = entries[0]
+    if name != _normalized(OLD_SLUG) and version != FIRST_VERSION:
+        raise ValueError(
+            f"uv.lock's root package entry is already named {name!r}, but at version "
+            f"{version!r} rather than {FIRST_VERSION!r}"
+        )
     return pattern.sub(
         lambda m: (
-            f'{m.group(1)}"{_normalized(new_slug)}"{m.group(2)}'
-            f'version = "{FIRST_VERSION}"{m.group(3)}{m.group(4)}'
+            f'{m.group(1)}"{_normalized(new_slug)}"{m.group(3)}'
+            f'version = "{FIRST_VERSION}"{m.group(5)}{m.group(6)}'
         ),
         lock_text,
     )
@@ -121,11 +149,26 @@ def _write_atomic(path: Path, text: str) -> None:
         raise
 
 
+def _read(path: Path) -> str:
+    """`path` decoded as UTF-8, line endings untouched. A file that is not
+    UTF-8 raises `UnicodeDecodeError`, a `ValueError`."""
+    return path.read_bytes().decode("utf-8")
+
+
 def _plan_rewrites(new_package: str, new_script: str, new_slug: str) -> dict[Path, str]:
     """The new contents of every file the rename rewrites, keyed by path,
     with nothing written. Raises `ValueError` (or `OSError` for an
     unreadable file) when the tree is not one this script can rename, so
-    the caller stops before any file has changed."""
+    the caller stops before any file has changed.
+
+    Every rewrite is idempotent: run over a tree a previous run with the same
+    arguments has already partly or fully written, it produces what a single
+    run would have. That is what lets a rerun finish a rename a disk error
+    interrupted.
+
+    Files are read and written as UTF-8 bytes, never through `read_text()`,
+    so neither the platform's locale encoding nor newline translation
+    touches them: a CRLF file stays CRLF, and non-ASCII text survives."""
     if new_package != OLD_PACKAGE and (ROOT / "src" / new_package).exists():
         raise ValueError(
             f"src/{new_package}/ already exists, so src/{OLD_PACKAGE}/ cannot move there"
@@ -135,25 +178,33 @@ def _plan_rewrites(new_package: str, new_script: str, new_slug: str) -> dict[Pat
 
     for sub in PACKAGE_DIRS:
         for path in (ROOT / sub).rglob("*.py"):
-            text = path.read_text()
-            if OLD_PACKAGE in text:
-                rewrites[path] = text.replace(OLD_PACKAGE, new_package)
+            text = _read(path)
+            new_text = _replace_token(text, OLD_PACKAGE, new_package)
+            if new_text != text:
+                rewrites[path] = new_text
 
     cem_toml = ROOT / "cem.toml"
-    rewrites[cem_toml] = cem_toml.read_text().replace(OLD_PACKAGE, new_package)
+    rewrites[cem_toml] = _replace_token(_read(cem_toml), OLD_PACKAGE, new_package)
 
     # ---- pyproject.toml: package, console script, repo slug, version ----
     pyproject = ROOT / "pyproject.toml"
-    text = pyproject.read_text()
-    text = text.replace(OLD_PACKAGE, new_package)  # packages=, version_files, script value
-    text = text.replace(OLD_SCRIPT, new_script)  # [project.scripts] key
-    text = text.replace(OLD_SLUG, new_slug)  # [project].name, [project.urls]
-    text = re.sub(r'(?m)^version = ".*"$', f'version = "{FIRST_VERSION}"', text, count=1)
+    text = _read(pyproject)
+    text = _replace_token(text, OLD_PACKAGE, new_package)  # packages=, version_files, script
+    text = _replace_token(text, OLD_SCRIPT, new_script)  # [project.scripts] key
+    text = _replace_token(text, OLD_SLUG, new_slug)  # [project].name, [project.urls]
+    text, n_versions = re.subn(
+        r'(?m)^version = "[^"\r\n]*"(\r?)$', rf'version = "{FIRST_VERSION}"\g<1>', text, count=1
+    )
+    if n_versions != 1:
+        raise ValueError("could not find [project].version in pyproject.toml")
     rewrites[pyproject] = text
 
     # [project].name has to be the slug the replace above just wrote. The
     # lock's root entry and ci.yml's package-name are renamed to the same
-    # slug, so a name that is anything else leaves the three disagreeing.
+    # slug, so a name that is anything else leaves the three disagreeing. On
+    # a rerun the name is already the new slug; a name that is a different
+    # slug means a previous run was given different arguments, and this one
+    # is refused rather than mixing the two.
     project_table = text.split("\n[", 1)[0]  # up to [project.scripts]/[project.urls]
     name_match = re.search(r'(?m)^name = "([^"]+)"', project_table)
     if not name_match:
@@ -161,8 +212,8 @@ def _plan_rewrites(new_package: str, new_script: str, new_slug: str) -> dict[Pat
     project_name = name_match.group(1)
     if project_name != new_slug:
         raise ValueError(
-            f"pyproject.toml's [project].name is {project_name!r}, not the template's "
-            f"{OLD_SLUG!r}, so it cannot be renamed to {new_slug!r}"
+            f"pyproject.toml's [project].name is {project_name!r}, neither the template's "
+            f"{OLD_SLUG!r} nor {new_slug!r}, so it cannot be renamed to {new_slug!r}"
         )
 
     # ---- ci.yml: the rest of the repo slug -------------------------------
@@ -170,18 +221,18 @@ def _plan_rewrites(new_package: str, new_script: str, new_slug: str) -> dict[Pat
     # something (build's verify-wheel step) rather than just reading wrong,
     # so the line is found, checked against the slug it should hold, and
     # rewritten explicitly instead of trusted to survive the blanket replace.
+    # It may already hold the new slug, from a previous run that wrote ci.yml.
     ci_yml = ROOT / ".github" / "workflows" / "ci.yml"
-    ci_old = ci_yml.read_text()
-    package_names = re.findall(r"(?m)^\s*package-name:\s*(\S+)\s*$", ci_old)
-    if package_names != [OLD_SLUG]:
+    ci_old = _read(ci_yml)
+    package_names = [m.group(2) for m in _PACKAGE_NAME_LINE.finditer(ci_old)]
+    if package_names not in ([OLD_SLUG], [new_slug]):
         raise ValueError(
-            f"ci.yml must have exactly one package-name: line, set to {OLD_SLUG!r}; "
-            f"found {package_names!r}"
+            f"ci.yml must have exactly one package-name: line, set to {OLD_SLUG!r} "
+            f"or {new_slug!r}; found {package_names!r}"
         )
-    ci_text, n_subs = re.subn(
-        r"(?m)^(\s*package-name:\s*)\S+\s*$",
-        rf"\g<1>{project_name}",
-        ci_old.replace(OLD_SLUG, new_slug),
+    ci_text, n_subs = _PACKAGE_NAME_LINE.subn(
+        lambda m: f"{m.group(1)}{project_name}{m.group(3)}",
+        _replace_token(ci_old, OLD_SLUG, new_slug),
     )
     assert n_subs == 1
     rewrites[ci_yml] = ci_text
@@ -189,7 +240,7 @@ def _plan_rewrites(new_package: str, new_script: str, new_slug: str) -> dict[Pat
     # ---- uv.lock: the root package, so `uv sync --locked` still passes ----
     lock_path = ROOT / "uv.lock"
     try:
-        rewrites[lock_path] = _relock_root(lock_path.read_bytes().decode("utf-8"), new_slug)
+        rewrites[lock_path] = _relock_root(_read(lock_path), new_slug)
     except ValueError as exc:
         raise ValueError(f"cannot rename the root package in uv.lock: {exc}") from exc
 
@@ -253,17 +304,17 @@ def main(argv: list[str] | None = None) -> int:
 
     # ---- the writes -------------------------------------------------------
     # Each file is replaced whole (see _write_atomic), so none is ever left
-    # half-written. Every rewrite except uv.lock is idempotent on a rerun, so
-    # they go first; uv.lock comes next, and the src/ move last, because
-    # that move is what flips _already_renamed(). A failure up to and
-    # including the uv.lock write leaves src/ in place, so a rerun is
-    # accepted and finishes the job; only a failure of the src/ move itself,
-    # after uv.lock has been written, leaves a tree the rerun cannot fix.
-    lock_path = ROOT / "uv.lock"
+    # half-written, and every rewrite is idempotent (see _plan_rewrites). The
+    # src/ move goes last, because it is what flips _already_renamed(): a
+    # failure anywhere up to and including the move leaves src/ in place, so
+    # a rerun with the same arguments is accepted and finishes the job.
+    # pyproject.toml goes first, so once anything has been written its
+    # [project].name names this run's slug and a rerun with different
+    # arguments is refused instead of mixing two renames.
+    pyproject = ROOT / "pyproject.toml"
+    _write_atomic(pyproject, rewrites.pop(pyproject))
     for path, text in rewrites.items():
-        if path != lock_path:
-            _write_atomic(path, text)
-    _write_atomic(lock_path, rewrites[lock_path])
+        _write_atomic(path, text)
     if new_package != OLD_PACKAGE:
         (ROOT / "src" / OLD_PACKAGE).rename(ROOT / "src" / new_package)
 

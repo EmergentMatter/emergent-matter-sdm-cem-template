@@ -65,7 +65,10 @@ def _copy_tree(dst: Path) -> None:
 
 
 def _run_rename(
-    dst: Path, thing: str = THING, company: str | None = None
+    dst: Path,
+    thing: str = THING,
+    company: str | None = None,
+    env: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess:
     """`scripts/rename.py`, invoked as a real subprocess the way a person or
     `bootstrap.py` runs it, not by importing and calling its internals.
@@ -81,6 +84,7 @@ def _run_rename(
         cwd=dst,
         capture_output=True,
         text=True,
+        env=env,
     )
 
 
@@ -495,16 +499,58 @@ def test_the_oracle_can_fail(tmp_path: Path) -> None:
     assert result.returncode != 0
 
 
-def test_a_lockfile_with_windows_line_endings_is_rewritten_and_keeps_them(tmp_path: Path) -> None:
+#: Every file the rename rewrites that carries a non-ASCII `─` ruler.
+_RULED_FILES = (
+    "pyproject.toml",
+    "cem.toml",
+    f"src/{OLD_PACKAGE}/parameters.py",
+    "tests/test_build.py",
+)
+
+
+def test_files_with_windows_line_endings_keep_them_and_their_encoding(tmp_path: Path) -> None:
+    """A Windows checkout may have CRLF line endings, and Python's default
+    text encoding there is the locale's, not UTF-8. Run under an ASCII
+    locale, every rewritten file has to come back CRLF with its `─` rulers
+    intact, and the version and package-name, whose regexes must see past
+    the `\\r`, still have to be rewritten."""
     dst = tmp_path / "renamed"
     _copy_tree(dst)
-    original = (dst / "uv.lock").read_bytes().replace(b"\n", b"\r\n")
-    (dst / "uv.lock").write_bytes(original)
+    rewritten = [
+        dst / "pyproject.toml",
+        dst / "cem.toml",
+        dst / ".github" / "workflows" / "ci.yml",
+        dst / "uv.lock",
+        *(
+            p
+            for sub in _PACKAGE_DIRS
+            for p in (dst / sub).rglob("*.py")
+            if OLD_PACKAGE in p.read_text() and p.name != "test_rename_checklist.py"
+        ),
+    ]
+    for path in rewritten:
+        path.write_bytes(path.read_bytes().replace(b"\n", b"\r\n"))
+    for name in _RULED_FILES:
+        assert "─" in (dst / name).read_text(encoding="utf-8"), (
+            f"{name} has no ruler; update the test"
+        )
+    ascii_locale = {**os.environ, "LC_ALL": "C", "PYTHONUTF8": "0", "PYTHONCOERCECLOCALE": "0"}
 
-    assert _run_rename(dst).returncode == 0
+    result = _run_rename(dst, env=ascii_locale)
+    assert result.returncode == 0, result.stderr
 
-    after = (dst / "uv.lock").read_bytes()
-    assert b"\n" not in after.replace(b"\r\n", b"")
+    for path in rewritten:
+        path = Path(str(path).replace(f"src/{OLD_PACKAGE}", f"src/{NEW_PACKAGE}"))
+        after = path.read_bytes()
+        assert b"\n" not in after.replace(b"\r\n", b""), f"{path} lost its CRLF line endings"
+        assert OLD_PACKAGE.encode() not in after, f"{path} was not rewritten"
+    for name in _RULED_FILES:
+        name = name.replace(OLD_PACKAGE, NEW_PACKAGE)
+        assert "─" in (dst / name).read_bytes().decode("utf-8"), f"{name} lost its rulers"
+    project = tomllib.loads((dst / "pyproject.toml").read_text(encoding="utf-8"))["project"]
+    assert project["version"] == "0.1.0"
+    ci_text = (dst / ".github" / "workflows" / "ci.yml").read_bytes().decode("utf-8")
+    assert f"          package-name: {NEW_SLUG}\r\n" in ci_text
     assert _root_lock_entry(dst / "uv.lock")["name"] == NEW_SLUG
 
 
@@ -611,3 +657,93 @@ def test_a_successful_rename_leaves_no_temporary_files_behind(tmp_path: Path) ->
     assert _run_rename(dst).returncode == 0
 
     assert not list(dst.rglob("*.rename-tmp"))
+
+
+#: Runs `scripts/rename.py`'s main() with one step made to fail the way a
+#: disk error would: the uv.lock write, or the src/ move.
+_FAILING_DRIVER = """
+import importlib.util
+import sys
+from pathlib import Path
+
+script, fail, argv = sys.argv[1], sys.argv[2], sys.argv[3:]
+spec = importlib.util.spec_from_file_location("rename", script)
+rename = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(rename)
+if fail == "uv.lock":
+    write = rename._write_atomic
+
+    def _write_atomic(path, text):
+        if path.name == "uv.lock":
+            raise OSError("injected: disk full")
+        write(path, text)
+
+    rename._write_atomic = _write_atomic
+else:
+
+    def rename_path(self, target):
+        raise OSError("injected: cannot move")
+
+    Path.rename = rename_path
+raise SystemExit(rename.main(argv))
+"""
+
+
+def _run_failing_rename(dst: Path, fail: str, thing: str) -> None:
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-B",
+            "-c",
+            _FAILING_DRIVER,
+            str(dst / "scripts" / "rename.py"),
+            fail,
+            thing,
+        ],
+        cwd=dst,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode != 0
+    assert "injected" in result.stderr
+    assert (dst / "src" / OLD_PACKAGE).is_dir()
+
+
+def _relative_snapshot(tree: Path) -> dict[Path, bytes]:
+    return {p.relative_to(tree): b for p, b in _snapshot(tree).items()}
+
+
+@pytest.mark.parametrize("thing", [THING, "my_widget"])
+@pytest.mark.parametrize("fail", ["uv.lock", "src move"])
+def test_a_rerun_after_a_failed_write_finishes_the_rename(
+    tmp_path: Path, fail: str, thing: str
+) -> None:
+    """A disk error part-way through the writes leaves src/ unmoved, so the
+    script accepts a rerun; that rerun has to finish with the tree a single
+    clean run produces. `my_widget` contains the template's `widget_sdf` and
+    `widget-build` once renamed, so a replacement that is not idempotent
+    would rename them a second time."""
+    clean = tmp_path / "clean"
+    _copy_tree(clean)
+    assert _run_rename(clean, thing=thing).returncode == 0
+    dst = tmp_path / "renamed"
+    _copy_tree(dst)
+
+    _run_failing_rename(dst, fail, thing)
+    result = _run_rename(dst, thing=thing)
+
+    assert result.returncode == 0, result.stderr
+    assert _relative_snapshot(dst) == _relative_snapshot(clean)
+
+
+def test_a_rerun_with_a_different_name_after_a_failed_write_is_refused(tmp_path: Path) -> None:
+    dst = tmp_path / "renamed"
+    _copy_tree(dst)
+    _run_failing_rename(dst, "uv.lock", THING)
+    before = _snapshot(dst)
+
+    result = _run_rename(dst, thing="gear")
+
+    assert result.returncode == 1
+    assert "[project].name" in result.stderr
+    assert _snapshot(dst) == before
