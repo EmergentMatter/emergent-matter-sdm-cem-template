@@ -185,6 +185,7 @@ because nothing else reads it.
 | Page | What it covers |
 |---|---|
 | [`docs/traps.md`](docs/traps.md) | The mistakes this stack lets you make that produce a document that builds, validates, and is wrong |
+| [`docs/design-regions.md`](docs/design-regions.md) | Telling later tools where the part must stay solid, must stay empty, and may grow |
 | [STYLE.md](STYLE.md) / [CONTRIBUTING.md](CONTRIBUTING.md) | House style and how a change ships |
 
 Those pages document this template. For the wider SDM ecosystem and the
