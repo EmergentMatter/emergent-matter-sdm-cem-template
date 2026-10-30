@@ -75,6 +75,53 @@ Two tests hold the line, and both matter:
 `test_derived_values_are_not_declared_as_params` (not in `cem.toml`, not in the
 `.sdm`) and the manifest/dataclass drift checks in `test_manifest.py`.
 
+## Every number has a source. Parametric modelling is the point
+
+Nothing in the part is positioned or sized by a number that is not traceable.
+Change a requirement, rerun, and every dimension that depends on it must move;
+a number typed into the shape code looks right today and is silently wrong the
+first time an input changes.
+
+- **A number gets its value exactly one way:** typed in as a declared
+  parameter with a `source` in `cem.toml`, computed from parameters
+  (`@property`), or read off a bought part's record. Never a fourth way.
+- **Every parameter names its `source`:** `requirement:<id>`,
+  `part:<vendor>:<number>`, `standard:<name, clause>`,
+  `process:<profile>:<limit>`, `choice: <why>` (a reasoned design decision),
+  or `tool: <what>`. A number with no source is a guess nobody can check.
+- **A number that comes from somewhere else is never retyped.** One home per
+  number; everything else points at it. A groove for a spring is driven by
+  the spring's width, not by a second copy of it.
+- **The AI writes structure, not values.** Every number you type is a guess
+  that has to be re-checked forever; every reference you write is one decision,
+  checked once. Prefer reading a value to typing it.
+- **A bought part is one entry,** and its dimensions are read off it (head
+  diameter, thread, width). Swap the part and every dimension that depends on
+  it moves together.
+- **Rules judge; they never assign.** `validate()` reports how far past a
+  limit a value is. It never clamps the value back, which would hide the
+  problem.
+- **A clearance is applied at exactly one place,** so it is never added twice
+  or forgotten once.
+- **A clean check is evidence about what it covers, not about what it does
+  not.** The worst miss is a coupled dimension that never became a parameter:
+  `LEG_R = 41.0  # set by the motor case` passes every test. When the tests are
+  green, ask what drives each dimension before trusting it.
+- **Turning literals into parameters must not change the part.** Build and
+  hash the output before, wire the parameters in, rebuild, compare hashes.
+  Identical output proves the wiring; a part that merely looks right does not.
+
+`tests/test_parametric.py` holds the line, and is worth copying verbatim:
+every parameter has a `source`, a `choice` gives a reason, no number in the
+emitted trees stays put when every parameter is changed one at a time (a
+typed-in number), and every length scales exactly when the length parameters
+are scaled together (a typed-in offset, `outer_radius + 1.3`). Plain constants
+(0, 1/2, 1, 2, angles of whole 15 degree steps from counts) are allowed.
+
+(These rules come from the Parametric Function Table spec,
+`emergent-matter-parametric-function-table`, which is retired as a format.
+The rules stand.)
+
 ## Verify by evaluating, never by validating
 
 `verify()` returning `schema_ok: True` means the JSON is shaped right. It
@@ -102,6 +149,9 @@ Miss any step and the failure is silent:
 4. A rule in `validate()` if any combination involving it is invalid, plus a
    `[[cem.constraints]]` entry with a `why`.
 5. A field assertion in `test_build.py` if it changes the shape.
+6. A `source` in `cem.toml`: the requirement, part, standard, process limit or
+   reasoned choice the number comes from. `test_parametric.py` refuses a
+   parameter without one.
 
 `test_manifest.py` catches 1-vs-2 in both directions. Nothing catches a missing
 step 4 except you.
