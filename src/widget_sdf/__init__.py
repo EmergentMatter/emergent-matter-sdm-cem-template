@@ -7,5 +7,5 @@ from __future__ import annotations
 
 from widget_sdf.parameters import WidgetParameters
 
-__version__ = "1.0.0"
+__version__ = "1.0.1"
 __all__ = ["WidgetParameters"]
