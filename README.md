@@ -112,6 +112,16 @@ the viewer faithfully rendered the inconsistent state.
 Corollary, enforced by `test_derived_values_are_not_declared_as_params`: a
 derived value must not ship in the `.sdm` as a free param either.
 
+### Every number has a source
+
+Nothing is positioned or sized by a number that is not traceable to a
+requirement, a bought part, a standard, a process limit or a reasoned design
+choice. Every parameter in `cem.toml` names its `source`; every other number
+is computed from parameters. `tests/test_parametric.py` fails on a parameter
+with no source, on a number typed into the shape code, and on a length offset
+by a typed-in number. See CLAUDE.md, "Every number has a source", for the full
+rules.
+
 ### `validate()` returns a list. It does not raise.
 
 An optimizer or a coder agent should see every problem at once, not fix five

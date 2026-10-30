@@ -17,6 +17,18 @@
 # the type prefix, so d_outer_radius ships as outer_radius; recording it is
 # what lets a consumer join a CEM to its own output without guessing.
 #
+# `source` says where the number comes from, and every param has one (Rob,
+# 2026-10-30: parametric modelling is critical; nothing is positioned or sized
+# that is not traceable). One of:
+#   requirement:<id>          a line of the project's requirements file
+#   part:<vendor>:<number>    a bought part's catalogue page (its dimensions)
+#   standard:<name, clause>   a published table (thread, clearance, fit)
+#   process:<profile>:<limit> a manufacturing limit (minimum wall, hole)
+#   choice: <why>             a design decision, with its reason in one line
+#   tool: <what>              configures the toolchain, not the part
+# Every other number in the part is computed from these (@property), and
+# tests/test_parametric.py fails on a number typed into the shape code.
+#
 # Derived values (d_bore_radius, d_bolt_angular_pitch, d_flange_ligament) are
 # NOT declared here. They are @property on the dataclass and they stay there:
 # a manifest declares surface, not a second copy of the model.
@@ -38,6 +50,7 @@ role = "topology"
 bounds = [0, 24]
 emits = "bolt_holes"
 doc = "Number of holes in the flange bolt circle. 0 removes the bolt circle."
+source = "choice: six bolts spread the clamp load around the flange and still leave a ligament above flange_ligament_floor"
 
 [cem.params.d_outer_radius]
 type = "float"
@@ -47,6 +60,7 @@ role = "live"
 bounds = [4.0, 60.0]
 emits = "outer_radius"
 doc = "Outer radius of the tube."
+source = "requirement:WIDGET-F1.1 (example ID: the tube OD the mating housing bore takes)"
 
 [cem.params.d_wall_thickness]
 type = "float"
@@ -56,6 +70,7 @@ role = "live"
 bounds = [0.8, 20.0]
 emits = "wall_thickness"
 doc = "Tube wall thickness. The bore follows from this."
+source = "choice: example value; a real CEM sizes the wall from its load requirement and never below its process's minimum wall"
 
 [cem.params.d_length]
 type = "float"
@@ -65,6 +80,7 @@ role = "re-emit"
 bounds = [5.0, 200.0]
 emits = "length"
 doc = "Overall axial length, flange included."
+source = "requirement:WIDGET-F1.2 (example ID: the length of the housing it passes through)"
 
 [cem.params.d_flange_radius]
 type = "float"
@@ -74,6 +90,7 @@ role = "live"
 bounds = [5.0, 100.0]
 emits = "flange_radius"
 doc = "Flange outer radius."
+source = "choice: wide enough to carry the bolt circle with a ligament on both sides of each hole"
 
 [cem.params.d_flange_thickness]
 type = "float"
@@ -83,6 +100,7 @@ role = "re-emit"
 bounds = [1.0, 30.0]
 emits = "flange_thickness"
 doc = "Flange axial thickness."
+source = "choice: example value; a real CEM sizes it from the clamp load the bolts put through the flange"
 
 [cem.params.d_bolt_hole_radius]
 type = "float"
@@ -92,6 +110,7 @@ role = "re-emit"
 bounds = [0.5, 10.0]
 emits = "bolt_hole_radius"
 doc = "Radius of each bolt hole. 1.7 is M3 clearance."
+source = "standard:ISO 273 medium clearance for M3 (3.4 mm diameter)"
 
 [cem.params.d_bolt_circle_radius]
 type = "float"
@@ -101,6 +120,7 @@ role = "re-emit"
 bounds = [3.0, 90.0]
 emits = "bolt_circle_radius"
 doc = "Radius of the circle the bolt holes sit on."
+source = "choice: midway between the tube and the flange edge, so the ligament is equal inside and out"
 
 [cem.params.d_voxel_size_mm]
 type = "float"
@@ -109,6 +129,7 @@ unit = "mm"
 role = "tool"
 bounds = [0.02, 2.0]
 doc = "Default voxel size for meshing. Not design surface: it configures the toolchain."
+source = "tool: meshing resolution, not geometry"
 
 # ── Constraints: the rules no per-param bound can express ──────────────────
 #
