@@ -106,6 +106,26 @@ recorded command *and* when you move the CEM on disk. Renaming the directory
 invalidates an approval that was working a minute ago, and the refusal looks
 identical to never having approved at all.
 
+**The recorded command must name no machine.** A `.sdm` is committed and
+opened elsewhere, and the engine runs `argv` as written, with `cwd` resolved
+against the file. `sys.argv[0]` is the absolute path of the console script in
+one developer's venv and `Path.cwd()` is their checkout, so recording either
+makes every re-emit elsewhere fail with `authoring command not found`.
+`harness.py` records `uv run --frozen <script>` and, as `cwd`, the project
+root relative to the `.sdm`, wherever the build was started from. Bare
+`python` is not a substitute: the process that re-emits has its own
+interpreter, not this CEM's venv. Only a `.sdm` inside the repo can be
+portable: one written outside it (or on another Windows drive) records the
+absolute project root, re-emits only on that machine, and the build warns on
+stderr. `check_contract.py` builds under the repo and fails on an absolute
+path or an absolute `cwd`.
+
+**The process that re-emits needs `uv` on its PATH.** The recorded command
+starts with `uv`, so a sidecar or viewer launched without `~/.local/bin` on its
+PATH (from a desktop launcher, a service, `env -i`) refuses every re-emit with
+`authoring command not found: uv`. Start it from a shell where `uv --version`
+works.
+
 **Declare the flags the CLI takes.** A tool driving your CEM cannot tell from
 the recorded argv whether it accepts `--out` and `--set`. Undeclared, the
 tool's only option is to write edited values into your `.sdm` and re-run the
@@ -116,8 +136,8 @@ geometry.
 
 ```python
 part.metadata["generator"] = {
-    "argv": [...],
-    "cwd": str(Path.cwd()),
+    "argv": ["uv", "run", "--frozen", "<script>", ...],
+    "cwd": "..",
     "accepts": ["--out", "--set"],
 }
 ```

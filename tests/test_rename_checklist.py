@@ -327,9 +327,11 @@ def test_the_renamed_cli_still_satisfies_the_tool_contract(tmp_path: Path) -> No
         cli.main(["--out", str(dst / "bad.sdm"), "--set", "definitely_not_a_param=1"])
 
     argv = doc["metadata"]["generator"]["argv"]
-    replay = list(argv[1:])
+    assert argv[:4] == ["uv", "run", "--frozen", cli.SCRIPT], (
+        f"the recorded generator does not name the renamed script: {argv[:4]}"
+    )
     replayed_out = dst / "replay.sdm"
-    replay[replay.index("--out") + 1] = str(replayed_out)
+    replay = [*argv[4:], "--out", str(replayed_out)]
     assert cli.main(replay) == 0, "the recorded generator command does not re-run after the rename"
     before = {k: v["value"] for k, v in doc["params"].items()}
     after = {k: v["value"] for k, v in json.loads(replayed_out.read_text())["params"].items()}
