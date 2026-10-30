@@ -1,1 +1,0 @@
-`scripts/rename.py` now computes every rewrite and runs every check before writing anything, so a bad `[project].name` or `ci.yml` `package-name:` stops it with the tree untouched instead of leaving a half-renamed copy.
