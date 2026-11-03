@@ -35,6 +35,23 @@ one here, not even for a typo: a local change is indistinguishable from
 staleness to a three-way sync, which has to arbitrate the difference. Change
 the template instead.
 
+## Building a part
+
+Every part in this repo is built through the CEM.
+
+- Every dimension a person may want to change is a parameter: a field on
+  `WidgetParameters` in `src/widget_sdf/parameters.py` and a matching
+  `[cem.params.<name>]` entry in `cem.toml`. A number that appears only inside
+  a tree builder is not adjustable, and the viewer shows no parameters for it.
+- Change the part by editing the parameters and the tree builders under
+  `src/widget_sdf/sdm/`, never by writing a new script beside them.
+- Build with the package's CLI, `uv run widget-build --out <file>.sdm`, and
+  override values with `--set <name>=<value>`.
+- Never write a standalone script or notebook that builds geometry with fixed
+  values.
+- Run `uv run pytest` after a change. A new parameter follows the checklist
+  under "Adding a parameter" below.
+
 ## What a CEM is, and what it is not
 
 A **computational engineering model** (CEM) turns **parameters into

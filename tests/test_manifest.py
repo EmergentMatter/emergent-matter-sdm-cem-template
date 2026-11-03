@@ -8,6 +8,7 @@ nobody is building, and it drifts silently because nothing reads it in CI.
 from __future__ import annotations
 
 import dataclasses
+import json
 import tomllib
 from pathlib import Path
 
@@ -123,3 +124,14 @@ def test_emitted_units_match_the_manifest() -> None:
         assert unit == declared, (
             f"{field}: assembly.py emits unit {unit!r}, cem.toml says {declared!r}"
         )
+
+
+def test_cem_name_is_the_name_the_cli_builds_by_default(tmp_path: Path) -> None:
+    """`scripts/rename.py` sets `cem.toml`'s name and the CLI's default
+    `--name` to the same `<thing>`; the pair has to agree for the template too,
+    or a renamed CEM's manifest and its emitted part would carry two names."""
+    from widget_sdf.sdm.cli import main
+
+    out = tmp_path / "default.sdm"
+    assert main(["--out", str(out)]) == 0
+    assert json.loads(out.read_text())["name"] == CEM["name"]

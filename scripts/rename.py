@@ -1,13 +1,24 @@
 #!/usr/bin/env python3
 """Turn this template into a real CEM.
 
-    python3 scripts/rename.py <thing> [--company <company-name>]
+    python3 scripts/rename.py <thing> [--company <company-name>] [--offline]
 
 Performs README's "Use it" step 1, mechanically: renames the package
 directory and fixes every import and manifest reference that names it,
 renames the repo slug everywhere `pyproject.toml` and `ci.yml` carry it,
-renames the console-script key, renames the root package in `uv.lock` (so
-`uv sync --locked` still passes), and resets the release history (step 2).
+renames the console-script key, the dataclass and the part builder, sets
+`cem.toml`'s `[cem].name` and the CLI's default `--name` to `<thing>`,
+renames the root package in `uv.lock` (so `uv sync --locked` still passes),
+and resets the release history (step 2).
+
+`--offline` is the form the hosted git broker runs (`python3 -I`, no
+network). The lockfile has always been rewritten as text, never relocked, so
+the flag changes nothing about what is written; it names the guarantee that
+this script runs no `uv` and opens no connection, and the tests hold it to
+that.
+
+What a rename leaves named `widget`: README.md, which documents the template
+itself, and this script and its test file, which are deleted at the end.
 
 WHY A SCRIPT AND NOT A PARAGRAPH. This rename procedure used to be prose in
 README, and every review round found another location it forgot: cem.toml's
@@ -38,6 +49,9 @@ ROOT = Path(__file__).resolve().parent.parent
 OLD_PACKAGE = "widget_sdf"
 OLD_SCRIPT = "widget-build"
 OLD_SLUG = "emergent-matter-sdm-cem-template"
+OLD_THING = "widget"  # cem.toml's [cem].name and the CLI's default --name
+OLD_CLASS = "WidgetParameters"
+OLD_BUILDER = "build_widget_part"
 
 #: The organization half of a renamed CEM's repo slug. EmergentMatter's
 #: own CEMs are `emergent-matter-cem-<thing>`, so that is the default; a
@@ -75,6 +89,11 @@ def _valid_company(company: str) -> bool:
     produces a slug GitHub would reject, and the rename is the wrong
     place to discover that."""
     return bool(re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", company))
+
+
+def _camel(thing: str) -> str:
+    """`gear_box` as `GearBox`, the prefix of the renamed parameters class."""
+    return "".join(part.capitalize() for part in thing.split("_") if part)
 
 
 def _normalized(name: str) -> str:
@@ -155,7 +174,33 @@ def _read(path: Path) -> str:
     return path.read_bytes().decode("utf-8")
 
 
-def _plan_rewrites(new_package: str, new_script: str, new_slug: str) -> dict[Path, str]:
+def _rename_names(text: str, thing: str, *, bare: bool) -> str:
+    """`text` with the template's package, console script, dataclass and
+    builder names replaced by `thing`'s. `bare` also replaces the standalone
+    word `widget` (the part's name in prose, in `--name`'s default, in test
+    expectations), which only code files want."""
+    text = _replace_token(text, OLD_PACKAGE, f"{thing}_sdf")
+    text = _replace_token(text, OLD_SCRIPT, f"{thing}-build")
+    text = _replace_token(text, OLD_CLASS, f"{_camel(thing)}Parameters")
+    text = _replace_token(text, OLD_BUILDER, f"build_{thing}_part")
+    if bare:
+        text = _replace_token(text, OLD_THING, thing)
+    return text
+
+
+#: Files outside PACKAGE_DIRS that name the console script or the package.
+#: bootstrap.py and doctor.py fall back to the script name when pyproject has
+#: none; CLAUDE.md tells the agent which names to use.
+NAME_ONLY_FILES = ("scripts/bootstrap.py", "scripts/doctor.py", "CLAUDE.md")
+
+#: `[cem].name` in cem.toml: the first `name =` line, which is the [cem]
+#: table's own because the table opens the file's keys.
+_CEM_NAME_LINE = re.compile(r'(?m)^(name = )"([^"\r\n]*)"')
+
+
+def _plan_rewrites(
+    new_package: str, new_script: str, new_slug: str, new_thing: str
+) -> dict[Path, str]:
     """The new contents of every file the rename rewrites, keyed by path,
     with nothing written. Raises `ValueError` (or `OSError` for an
     unreadable file) when the tree is not one this script can rename, so
@@ -179,13 +224,16 @@ def _plan_rewrites(new_package: str, new_script: str, new_slug: str) -> dict[Pat
     for sub in PACKAGE_DIRS:
         for path in (ROOT / sub).rglob("*.py"):
             text = _read(path)
-            new_text = _replace_token(text, OLD_PACKAGE, new_package)
-            new_text = _replace_token(new_text, OLD_SCRIPT, new_script)  # cli.py's SCRIPT
+            new_text = _rename_names(text, new_thing, bare=True)
             if new_text != text:
                 rewrites[path] = new_text
 
-    cem_toml = ROOT / "cem.toml"
-    rewrites[cem_toml] = _replace_token(_read(cem_toml), OLD_PACKAGE, new_package)
+    for name in NAME_ONLY_FILES:
+        path = ROOT / name
+        text = _read(path)
+        new_text = _rename_names(text, new_thing, bare=False)
+        if new_text != text:
+            rewrites[path] = new_text
 
     # ---- pyproject.toml: package, console script, repo slug, version ----
     pyproject = ROOT / "pyproject.toml"
@@ -216,6 +264,19 @@ def _plan_rewrites(new_package: str, new_script: str, new_slug: str) -> dict[Pat
             f"pyproject.toml's [project].name is {project_name!r}, neither the template's "
             f"{OLD_SLUG!r} nor {new_slug!r}, so it cannot be renamed to {new_slug!r}"
         )
+
+    # ---- cem.toml: entry point, parameters class and the [cem].name ----
+    cem_toml = ROOT / "cem.toml"
+    cem_text = _rename_names(_read(cem_toml), new_thing, bare=False)
+    cem_names = _CEM_NAME_LINE.findall(cem_text)
+    if not cem_names or cem_names[0][1] not in (OLD_THING, new_thing):
+        raise ValueError(
+            f"cem.toml's [cem].name must be {OLD_THING!r} or {new_thing!r}; "
+            f"found {cem_names[0][1] if cem_names else None!r}"
+        )
+    rewrites[cem_toml] = _CEM_NAME_LINE.sub(
+        lambda m: f'{m.group(1)}"{new_thing}"', cem_text, count=1
+    )
 
     # ---- ci.yml: the rest of the repo slug -------------------------------
     # package-name == [project].name is the invariant that actually breaks
@@ -262,6 +323,11 @@ def main(argv: list[str] | None = None) -> int:
             "organization half of the repo slug, as in <company>-cem-<thing> (default: %(default)s)"
         ),
     )
+    ap.add_argument(
+        "--offline",
+        action="store_true",
+        help="run with no network and no uv; the lockfile is rewritten as text (always true)",
+    )
     args = ap.parse_args(argv)
     thing = args.thing
     company = args.company
@@ -298,7 +364,7 @@ def main(argv: list[str] | None = None) -> int:
     # a single file changes: every input is read and every new file is
     # computed in memory, and every check runs against those results.
     try:
-        rewrites = _plan_rewrites(new_package, new_script, new_slug)
+        rewrites = _plan_rewrites(new_package, new_script, new_slug, thing)
     except (OSError, ValueError) as exc:
         _fail(str(exc))
         return 1
@@ -326,6 +392,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"package  : {OLD_PACKAGE} -> {new_package}")
     print(f"script   : {OLD_SCRIPT} -> {new_script}")
     print(f"repo slug: {OLD_SLUG} -> {new_slug}")
+    print(f"name     : {OLD_THING} -> {thing}")
     print("release  : [project].version -> 0.1.0, changelog.d/ emptied")
 
     # A rename happens once. Leaving this script behind invites a second
