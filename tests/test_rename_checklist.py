@@ -438,6 +438,46 @@ def test_an_offline_rename_leaves_a_working_cem_whose_own_tests_pass(tmp_path: P
     assert not (dst / "tests" / "test_rename_checklist.py").exists()
 
 
+def test_the_build_command_in_claude_md_runs_in_the_renamed_copy(tmp_path: Path) -> None:
+    """The agent's build line, as CLAUDE.md gives it, with no `uv` on PATH."""
+    dst = tmp_path / "renamed"
+    _copy_tree(dst)
+    assert _run_rename(dst, offline=True).returncode == 0
+    doc = (dst / "CLAUDE.md").read_text()
+    line = f"PYTHONPATH=src python -m {NEW_PACKAGE}.sdm.cli --out <file>.sdm"
+    assert line in doc
+
+    out = dst / "part.sdm"
+    result = subprocess.run(
+        [sys.executable, "-m", f"{NEW_PACKAGE}.sdm.cli", "--out", str(out)],
+        cwd=dst,
+        capture_output=True,
+        text=True,
+        env={"PATH": "/nonexistent", "PYTHONPATH": str(dst / "src")},
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert json.loads(out.read_text())["name"] == THING
+
+
+def test_the_build_command_needs_src_on_the_path(tmp_path: Path) -> None:
+    """Without `PYTHONPATH=src` the renamed package is not importable, so the
+    line's prefix is not decoration."""
+    dst = tmp_path / "renamed"
+    _copy_tree(dst)
+    assert _run_rename(dst, offline=True).returncode == 0
+
+    result = subprocess.run(
+        [sys.executable, "-m", f"{NEW_PACKAGE}.sdm.cli", "--out", str(dst / "x.sdm")],
+        cwd=dst,
+        capture_output=True,
+        text=True,
+        env={"PATH": "/nonexistent"},
+    )
+
+    assert result.returncode != 0
+
+
 @pytest.mark.parametrize("bad", ["Not-A-Thing", "1gear", "gear sdf", "../x"])
 def test_an_offline_rename_refuses_a_bad_thing_and_changes_nothing(
     tmp_path: Path, bad: str

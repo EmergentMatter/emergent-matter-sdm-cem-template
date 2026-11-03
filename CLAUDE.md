@@ -45,12 +45,15 @@ Every part in this repo is built through the CEM.
   a tree builder is not adjustable, and the viewer shows no parameters for it.
 - Change the part by editing the parameters and the tree builders under
   `src/widget_sdf/sdm/`, never by writing a new script beside them.
-- Build with the package's CLI, `uv run widget-build --out <file>.sdm`, and
-  override values with `--set <name>=<value>`.
+- Build with the package's CLI:
+  `PYTHONPATH=src python -m widget_sdf.sdm.cli --out <file>.sdm --set <name>=<value>`.
+  `uv run widget-build --out <file>.sdm` is the equivalent where `uv` is
+  installed.
 - Never write a standalone script or notebook that builds geometry with fixed
   values.
-- Run `uv run pytest` after a change. A new parameter follows the checklist
-  under "Adding a parameter" below.
+- Run `python -m pytest` after a change (`uv run pytest` where `uv` is
+  installed). A new parameter follows the checklist under "Adding a
+  parameter" below.
 
 ## What a CEM is, and what it is not
 
