@@ -1,4 +1,4 @@
-# cem.toml: the widget template's declared surface.
+# cem.toml: this CEM's declared surface.
 #
 # This file is the point of the template. It is what a tool reads when handed
 # this repo, and it is read WITHOUT importing anything: the MCP server's `read_cem`

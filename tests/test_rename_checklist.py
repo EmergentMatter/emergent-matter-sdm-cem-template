@@ -69,6 +69,7 @@ def _run_rename(
     thing: str = THING,
     company: str | None = None,
     env: dict[str, str] | None = None,
+    offline: bool = False,
 ) -> subprocess.CompletedProcess:
     """`scripts/rename.py`, invoked as a real subprocess the way a person or
     `bootstrap.py` runs it, not by importing and calling its internals.
@@ -77,6 +78,8 @@ def _run_rename(
     what every other test in this file exercises.
     """
     argv = [sys.executable, str(dst / "scripts" / "rename.py"), thing]
+    if offline:
+        argv.append("--offline")
     if company is not None:
         argv += ["--company", company]
     return subprocess.run(
@@ -283,7 +286,7 @@ def test_manifest_and_dataclass_still_agree_after_the_rename(tmp_path: Path) -> 
     dst, parameters, _assembly, _cli = _renamed_copy(tmp_path)
     cem = tomllib.loads((dst / "cem.toml").read_text())["cem"]
 
-    fields = {f.name for f in dataclasses.fields(parameters.WidgetParameters)}
+    fields = {f.name for f in dataclasses.fields(parameters.ThingParameters)}
     assert set(cem["params"]) == fields, (
         "cem.toml and the dataclass disagree right after a rename that "
         "changed no params: scripts/rename.py left one of them referring "
@@ -336,6 +339,130 @@ def test_the_renamed_cli_still_satisfies_the_tool_contract(tmp_path: Path) -> No
     before = {k: v["value"] for k, v in doc["params"].items()}
     after = {k: v["value"] for k, v in json.loads(replayed_out.read_text())["params"].items()}
     assert before == after, "replaying the recorded command changed the document after the rename"
+
+
+#: What a rename leaves named `widget`: README.md documents the template and
+#: says what the rename does to it. Nothing else may.
+_WIDGET_ALLOWED = {"README.md"}
+
+
+def _widget_leftovers(tree: Path) -> tuple[int, list[str]]:
+    """How many text files were scanned, and which of them still say `widget`
+    in any case, apart from `_WIDGET_ALLOWED`."""
+    scanned = 0
+    leftovers = []
+    for path in sorted(tree.rglob("*")):
+        if not path.is_file() or "__pycache__" in path.parts:
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            continue
+        scanned += 1
+        rel = str(path.relative_to(tree))
+        if "widget" in text.lower() and rel not in _WIDGET_ALLOWED:
+            leftovers.append(rel)
+    return scanned, leftovers
+
+
+def test_an_offline_rename_leaves_nothing_named_widget_but_the_documented_list(
+    tmp_path: Path,
+) -> None:
+    dst = tmp_path / "renamed"
+    _copy_tree(dst)
+
+    result = _run_rename(dst, offline=True)
+    assert result.returncode == 0, result.stderr
+
+    scanned, leftovers = _widget_leftovers(dst)
+    assert scanned >= 30, "the scan found almost nothing to look at"
+    assert leftovers == []
+    assert "widget" in (dst / "README.md").read_text().lower(), (
+        "README.md no longer names widget, so the allowed list is stale"
+    )
+
+
+def test_the_widget_scan_can_fail(tmp_path: Path) -> None:
+    """The template itself is full of `widget`; the scan must say so."""
+    dst = tmp_path / "unrenamed"
+    _copy_tree(dst)
+
+    _, leftovers = _widget_leftovers(dst)
+
+    assert "cem.toml" in leftovers
+    assert f"src/{OLD_PACKAGE}/parameters.py" in leftovers
+
+
+def test_an_offline_rename_names_the_cem_and_the_lockfile_after_the_thing(
+    tmp_path: Path,
+) -> None:
+    dst = tmp_path / "renamed"
+    _copy_tree(dst)
+
+    assert _run_rename(dst, thing="gear_box", offline=True).returncode == 0
+
+    cem = tomllib.loads((dst / "cem.toml").read_text())["cem"]
+    assert cem["name"] == "gear_box"
+    assert cem["entry_point"] == "gear_box_sdf.sdm.assembly:build_gear_box_part"
+    lock = tomllib.loads((dst / "uv.lock").read_text())
+    names = [pkg["name"] for pkg in lock["package"]]
+    assert "emergent-matter-cem-gear-box" in names
+    assert _normalized_old_slug() not in names
+    cli_text = (dst / "src" / "gear_box_sdf" / "sdm" / "cli.py").read_text()
+    assert 'default="gear_box"' in cli_text
+    assert "class GearBoxParameters" in (dst / "src" / "gear_box_sdf" / "parameters.py").read_text()
+
+
+def _normalized_old_slug() -> str:
+    return OLD_SLUG.replace("_", "-").lower()
+
+
+def test_an_offline_rename_leaves_a_working_cem_whose_own_tests_pass(tmp_path: Path) -> None:
+    dst = tmp_path / "renamed"
+    _copy_tree(dst)
+    assert _run_rename(dst, offline=True).returncode == 0
+
+    result = subprocess.run(
+        [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", "tests"],
+        cwd=dst,
+        capture_output=True,
+        text=True,
+        timeout=600,
+        # The venv's editable install points at the template's own src/, so
+        # the copy's renamed package is put first on the path explicitly.
+        env={**os.environ, "PYTHONPATH": str(dst / "src")},
+    )
+
+    assert result.returncode == 0, result.stdout[-2000:] + result.stderr[-2000:]
+    assert "passed" in result.stdout
+    assert not (dst / "tests" / "test_rename_checklist.py").exists()
+
+
+@pytest.mark.parametrize("bad", ["Not-A-Thing", "1gear", "gear sdf", "../x"])
+def test_an_offline_rename_refuses_a_bad_thing_and_changes_nothing(
+    tmp_path: Path, bad: str
+) -> None:
+    dst = tmp_path / "renamed"
+    _copy_tree(dst)
+    before = _snapshot(dst)
+
+    result = _run_rename(dst, thing=bad, offline=True)
+
+    assert result.returncode == 1
+    assert result.stderr.startswith("error:")
+    assert _snapshot(dst) == before
+
+
+def test_the_offline_flag_does_not_change_what_is_written(tmp_path: Path) -> None:
+    plain = tmp_path / "plain"
+    offline = tmp_path / "offline"
+    _copy_tree(plain)
+    _copy_tree(offline)
+
+    assert _run_rename(plain).returncode == 0
+    assert _run_rename(offline, offline=True).returncode == 0
+
+    assert _relative_snapshot(plain) == _relative_snapshot(offline)
 
 
 def test_resetting_release_history_sets_the_version_and_empties_changelog_d(
