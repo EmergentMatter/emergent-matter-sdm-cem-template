@@ -1,1 +1,0 @@
-`scripts/rename.py` now also renames the dataclass and part builder, sets `cem.toml`'s `[cem].name` and the CLI's default `--name` to `<thing>`, and takes `--offline` (no network, no `uv`; the lockfile is rewritten as text). `CLAUDE.md` tells the coding agent to build parts through the CEM's parameters and CLI.
