@@ -590,6 +590,12 @@ def _root_lock_entry(lock: Path) -> dict:
     return roots[0]
 
 
+def _template_version() -> str:
+    """The version the template carries now. A release bumps it, so tests that
+    mention the lock's old version read it instead of spelling it out."""
+    return tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]["version"]
+
+
 def test_the_lockfile_root_entry_follows_the_rename(tmp_path: Path) -> None:
     """`uv sync --locked`, the first step of every CI job, fails when
     `uv.lock` still names the package the rename replaced, so the lock's root
@@ -597,6 +603,7 @@ def test_the_lockfile_root_entry_follows_the_rename(tmp_path: Path) -> None:
     dst = tmp_path / "renamed"
     _copy_tree(dst)
     old_lock = (dst / "uv.lock").read_text()
+    old_version = _template_version()
 
     assert _run_rename(dst).returncode == 0
 
@@ -614,7 +621,7 @@ def test_the_lockfile_root_entry_follows_the_rename(tmp_path: Path) -> None:
     ]
     assert changed == [
         f'-name = "{OLD_SLUG}"',
-        '-version = "1.0.0"',
+        f'-version = "{old_version}"',
         f'+name = "{NEW_SLUG}"',
         f'+version = "{project["version"]}"',
     ]
@@ -645,7 +652,9 @@ def _damage(lock: str, kind: str) -> str:
     if kind == "twice":
         return lock + "\n" + block + "\n"
     if kind == "version line gone":
-        return lock.replace(block, block.replace('version = "1.0.0"\n', "", 1))
+        damaged = lock.replace(block, block.replace(f'version = "{_template_version()}"\n', "", 1))
+        assert damaged != lock, "the damage changed nothing"
+        return damaged
     if kind == "extra key":
         return lock.replace(block, block.replace("source =", 'extra = "x"\nsource =', 1))
     raise AssertionError(kind)
