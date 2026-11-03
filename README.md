@@ -15,10 +15,13 @@ pipeline this repo is the first step of, are in the docs hub:
 [glossary](https://github.com/EmergentMatter/emergent-matter-sdm/blob/main/docs/glossary.md),
 [concepts](https://github.com/EmergentMatter/emergent-matter-sdm/blob/main/docs/concepts.md).
 
-The part is a flanged bushing. It is deliberately boring: what this repo
+The part is a rounded block. It is deliberately boring: what this repo
 teaches is the **shape of a CEM**, not the shape of a part. It builds, it
 validates, and its tests pass, so you can tell whether your first change
-broke something.
+broke something. A fuller worked CEM, a flanged bushing with a bolt circle,
+an integer parameter and five constraints, is in
+[`examples/bushing_sdf/`](examples/bushing_sdf/), with an annotated
+`cem.toml` of its own.
 
 ## Install
 
@@ -101,7 +104,7 @@ Then, in this order:
 
 ### Derived values are `@property`. Never a field.
 
-`d_bore_radius` is `d_outer_radius - d_wall_thickness`. Write it down as a
+`d_half_min_side` is `min(d_length, d_width, d_height) / 2`. Write it down as a
 field and it becomes a second source of truth that nothing keeps in sync:
 which is exactly how a param edit produces geometry that violates the model
 with nothing reporting a problem. This is not hypothetical: it is
@@ -119,9 +122,10 @@ things in five round trips. `build_*_part()` is what raises.
 
 ### The interesting constraints are not bounds
 
-Per-param bounds cannot express `d_wall_thickness < d_outer_radius`, an
-ordering like `tube < bolt_circle < flange`, or a floor on a *derived* value
-like `d_flange_ligament` (which depends on `n_bolt_holes`). Those go in
+Per-param bounds cannot express `d_edge_radius < d_half_min_side`, a limit
+on a *derived* value. The bushing example adds an ordering like
+`tube < bolt_circle < flange` and a floor on `d_flange_ligament` (which depends
+on `n_bolt_holes`). Those go in
 `validate()` **and** in `cem.toml`'s `[[cem.constraints]]`, each with a `why`:
 a constraint whose reason lives only in someone's head gets relaxed by the
 next person who finds it inconvenient.
@@ -186,6 +190,8 @@ because nothing else reads it.
 | Page | What it covers |
 |---|---|
 | [`docs/traps.md`](docs/traps.md) | The mistakes this stack lets you make that produce a document that builds, validates, and is wrong |
+| [`examples/bushing_sdf/`](examples/bushing_sdf/) | A full worked CEM with an annotated `cem.toml`: roles, `emits`, bounds, constraints |
+| [`examples/plate_sdf/`](examples/plate_sdf/) | A rounded plate, and the rounding trap |
 | [STYLE.md](STYLE.md) / [CONTRIBUTING.md](CONTRIBUTING.md) | House style and how a change ships |
 
 Those pages document this template. For the wider SDM ecosystem and the

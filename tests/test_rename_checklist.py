@@ -316,15 +316,15 @@ def test_the_renamed_cli_still_satisfies_the_tool_contract(tmp_path: Path) -> No
     dst, _parameters, _assembly, cli = _renamed_copy(tmp_path)
 
     out = dst / "out.sdm"
-    assert cli.main(["--out", str(out), "--set", "outer_radius=14"]) == 0, (
+    assert cli.main(["--out", str(out), "--set", "length=50"]) == 0, (
         "the renamed CLI no longer builds: scripts/rename.py missed one of the imports under src/"
     )
     doc = json.loads(out.read_text())
-    assert doc["params"]["outer_radius"]["value"] == 14
+    assert doc["params"]["length"]["value"] == 50
 
     out2 = dst / "out2.sdm"
-    assert cli.main(["--out", str(out2), "--set", "bolt_holes=8.0"]) == 0
-    assert json.loads(out2.read_text())["params"]["bolt_holes"]["value"] == 8
+    assert cli.main(["--out", str(out2), "--set", "d_height=25.0"]) == 0
+    assert json.loads(out2.read_text())["params"]["height"]["value"] == 25
 
     with pytest.raises(SystemExit):
         cli.main(["--out", str(dst / "bad.sdm"), "--set", "definitely_not_a_param=1"])
@@ -341,14 +341,9 @@ def test_the_renamed_cli_still_satisfies_the_tool_contract(tmp_path: Path) -> No
     assert before == after, "replaying the recorded command changed the document after the rename"
 
 
-#: What a rename leaves named `widget`: README.md documents the template and
-#: says what the rename does to it. Nothing else may.
-_WIDGET_ALLOWED = {"README.md"}
-
-
 def _widget_leftovers(tree: Path) -> tuple[int, list[str]]:
     """How many text files were scanned, and which of them still say `widget`
-    in any case, apart from `_WIDGET_ALLOWED`."""
+    in any case."""
     scanned = 0
     leftovers = []
     for path in sorted(tree.rglob("*")):
@@ -360,12 +355,12 @@ def _widget_leftovers(tree: Path) -> tuple[int, list[str]]:
             continue
         scanned += 1
         rel = str(path.relative_to(tree))
-        if "widget" in text.lower() and rel not in _WIDGET_ALLOWED:
+        if "widget" in text.lower():
             leftovers.append(rel)
     return scanned, leftovers
 
 
-def test_an_offline_rename_leaves_nothing_named_widget_but_the_documented_list(
+def test_an_offline_rename_leaves_nothing_named_widget(
     tmp_path: Path,
 ) -> None:
     dst = tmp_path / "renamed"
@@ -377,9 +372,36 @@ def test_an_offline_rename_leaves_nothing_named_widget_but_the_documented_list(
     scanned, leftovers = _widget_leftovers(dst)
     assert scanned >= 30, "the scan found almost nothing to look at"
     assert leftovers == []
-    assert "widget" in (dst / "README.md").read_text().lower(), (
-        "README.md no longer names widget, so the allowed list is stale"
+
+
+def test_the_readme_is_replaced_by_the_projects_own(tmp_path: Path) -> None:
+    dst = tmp_path / "renamed"
+    _copy_tree(dst)
+    template_readme = (dst / "README.md").read_text()
+    assert (
+        template_readme.startswith("<a id=")
+        and "Template for a Software Defined" in template_readme
     )
+
+    assert _run_rename(dst, thing="gear_box", offline=True).returncode == 0
+
+    readme = (dst / "README.md").read_text()
+    assert readme.startswith("# gear_box\n")
+    assert "Made from the Emergent Matter CEM template." in readme
+    assert "PYTHONPATH=src python -m gear_box_sdf.sdm.cli --out part.sdm" in readme
+    assert "uv run gear_box-build" in readme
+    assert "python -m pytest" in readme
+    assert "CLAUDE.md" in readme
+    assert "Template for a Software Defined" not in readme
+    assert len(readme.splitlines()) < 40
+
+
+def test_a_missing_readme_stops_the_script_before_anything_changes(tmp_path: Path) -> None:
+    dst = tmp_path / "renamed"
+    _copy_tree(dst)
+    (dst / "README.md").unlink()
+
+    _refused_and_untouched(dst, "README.md")
 
 
 def test_the_widget_scan_can_fail(tmp_path: Path) -> None:

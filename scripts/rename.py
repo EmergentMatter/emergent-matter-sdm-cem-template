@@ -17,8 +17,10 @@ the flag changes nothing about what is written; it names the guarantee that
 this script runs no `uv` and opens no connection, and the tests hold it to
 that.
 
-What a rename leaves named `widget`: README.md, which documents the template
-itself, and this script and its test file, which are deleted at the end.
+README.md is replaced by a short README for the new CEM (the template's own
+README documents the template, and would mislead in a project). Nothing is
+left named `widget` except this script and its test file, which are deleted at
+the end.
 
 WHY A SCRIPT AND NOT A PARAGRAPH. This rename procedure used to be prose in
 README, and every review round found another location it forgot: cem.toml's
@@ -193,6 +195,37 @@ def _rename_names(text: str, thing: str, *, bare: bool) -> str:
 #: none; CLAUDE.md tells the agent which names to use.
 NAME_ONLY_FILES = ("scripts/bootstrap.py", "scripts/doctor.py", "CLAUDE.md")
 
+#: The README a renamed CEM starts with, fixed text with the names filled in.
+#: It is never derived from the template's README, so a rerun writes the same
+#: bytes.
+_PROJECT_README = """# {thing}
+
+Made from the Emergent Matter CEM template.
+
+## Build
+
+```bash
+PYTHONPATH=src python -m {package}.sdm.cli --out part.sdm --set <name>=<value>
+```
+
+`uv run {script} --out part.sdm` is the equivalent where `uv` is installed.
+`<name>` is a parameter declared in `cem.toml`.
+
+## Test
+
+```bash
+python -m pytest
+```
+
+`uv run pytest` is the equivalent where `uv` is installed.
+
+## Working on it
+
+Read [CLAUDE.md](CLAUDE.md): it says how parts are built and how to add a
+parameter.
+"""
+
+
 #: `[cem].name` in cem.toml: the first `name =` line, which is the [cem]
 #: table's own because the table opens the file's keys.
 _CEM_NAME_LINE = re.compile(r'(?m)^(name = )"([^"\r\n]*)"')
@@ -264,6 +297,14 @@ def _plan_rewrites(
             f"pyproject.toml's [project].name is {project_name!r}, neither the template's "
             f"{OLD_SLUG!r} nor {new_slug!r}, so it cannot be renamed to {new_slug!r}"
         )
+
+    # ---- README.md: replaced whole, from fixed text -----------------------
+    readme = ROOT / "README.md"
+    if not readme.is_file():
+        raise ValueError("README.md is missing")
+    rewrites[readme] = _PROJECT_README.format(
+        thing=new_thing, package=new_package, script=new_script
+    )
 
     # ---- cem.toml: entry point, parameters class and the [cem].name ----
     cem_toml = ROOT / "cem.toml"
