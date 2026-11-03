@@ -11,16 +11,19 @@ renames the console-script key, the dataclass and the part builder, sets
 renames the root package in `uv.lock` (so `uv sync --locked` still passes),
 and resets the release history (step 2).
 
-`--offline` is the form the hosted git broker runs (`python3 -I`, no
-network). The lockfile has always been rewritten as text, never relocked, so
-the flag changes nothing about what is written; it names the guarantee that
-this script runs no `uv` and opens no connection, and the tests hold it to
-that.
+`--offline` is accepted for callers that require it. This script never uses
+the network or `uv`: the lockfile is rewritten as text, never relocked, so the
+flag changes nothing about what is written.
 
 README.md is replaced by a short README for the new CEM (the template's own
-README documents the template, and would mislead in a project). Nothing is
-left named `widget` except this script and its test file, which are deleted at
-the end.
+README documents the template, and would mislead in a project); the steps and
+rules it carried live in docs/building-a-cem.md, which stays. Nothing is left
+named `widget` except this script and its test file, which are deleted at the
+end.
+
+When `<thing>_sdf` is the name of an example package under examples/, that
+example and its tests/test_example_<thing>.py are removed: the new package
+would otherwise share `sys.path` with a package of the same name.
 
 WHY A SCRIPT AND NOT A PARAGRAPH. This rename procedure used to be prose in
 README, and every review round found another location it forgot: cem.toml's
@@ -76,12 +79,13 @@ def _fail(message: str) -> None:
 
 
 def _valid_thing(thing: str) -> bool:
-    """`thing` becomes `<thing>_sdf` (a Python package, so it has to be a
-    valid identifier), `<thing>-build` (a console-script key), and
-    `<company>-cem-<thing>` (a repo slug). Lowercase snake_case
-    satisfies a Python identifier and reads fine hyphen-joined in the other
-    two, so it is the one shape that works everywhere it gets used."""
-    return bool(re.fullmatch(r"[a-z][a-z0-9_]*", thing)) and f"{thing}_sdf".isidentifier()
+    """`thing` becomes `<thing>_sdf` (a Python package), `<thing>-build` (a
+    console-script key), and `<company>-cem-<thing>` (a repo slug, whose
+    package name may not start or end with a separator or repeat one).
+    Lowercase snake_case in that shape is a valid identifier and reads fine
+    hyphen-joined, so it is the one shape that works everywhere it gets used.
+    Every such name stays an identifier once `_sdf` is appended."""
+    return bool(re.fullmatch(r"[a-z][a-z0-9]*(?:_[a-z0-9]+)*", thing))
 
 
 def _valid_company(company: str) -> bool:
@@ -202,33 +206,59 @@ _PROJECT_README = """# {thing}
 
 Made from the Emergent Matter CEM template.
 
+## Set up
+
+```bash
+python3 scripts/bootstrap.py
+```
+
+If anything goes wrong, `python3 scripts/doctor.py` prints the fix.
+
 ## Build
 
 ```bash
-PYTHONPATH=src python -m {package}.sdm.cli --out part.sdm --set <name>=<value>
+uv run {script} --out part.sdm --set <name>=<value>
 ```
 
-`uv run {script} --out part.sdm` is the equivalent where `uv` is installed.
-`<name>` is a parameter declared in `cem.toml`.
+`<name>` is a parameter declared in `cem.toml`. In an environment without
+`uv`, such as a prebuilt image with the dependencies already installed, run
+the same CLI with
+`PYTHONPATH=src python -m {package}.sdm.cli --out part.sdm --set <name>=<value>`.
 
-## Test
+## Tests
 
 ```bash
-python -m pytest
+uv run pytest
 ```
 
-`uv run pytest` is the equivalent where `uv` is installed.
+Without `uv`: `python -m pytest`.
 
 ## Working on it
 
-Read [CLAUDE.md](CLAUDE.md): it says how parts are built and how to add a
-parameter.
+Read [CLAUDE.md](CLAUDE.md) for how parts are built,
+[docs/building-a-cem.md](docs/building-a-cem.md) for what to change and the
+rules a CEM follows, and [docs/traps.md](docs/traps.md) for the mistakes that
+still build and validate.
 """
 
 
 #: `[cem].name` in cem.toml: the first `name =` line, which is the [cem]
 #: table's own because the table opens the file's keys.
 _CEM_NAME_LINE = re.compile(r'(?m)^(name = )"([^"\r\n]*)"')
+
+
+def _clash_removals(new_package: str, thing: str) -> list[Path]:
+    """The example package named `new_package`, if there is one, and its test
+    file: they go, so a renamed CEM can take any name. The test file is listed
+    first so a rerun after a failed removal still finds the directory."""
+    example = ROOT / "examples" / new_package
+    if new_package == OLD_PACKAGE or not example.is_dir():
+        return []
+    removals = [example]
+    test_file = ROOT / "tests" / f"test_example_{thing}.py"
+    if test_file.exists():
+        removals.insert(0, test_file)
+    return removals
 
 
 def _plan_rewrites(
@@ -253,9 +283,12 @@ def _plan_rewrites(
         )
 
     rewrites: dict[Path, str] = {}
+    removals = _clash_removals(new_package, new_thing)
 
     for sub in PACKAGE_DIRS:
         for path in (ROOT / sub).rglob("*.py"):
+            if any(path == r or r in path.parents for r in removals):
+                continue
             text = _read(path)
             new_text = _rename_names(text, new_thing, bare=True)
             if new_text != text:
@@ -302,9 +335,10 @@ def _plan_rewrites(
     readme = ROOT / "README.md"
     if not readme.is_file():
         raise ValueError("README.md is missing")
-    rewrites[readme] = _PROJECT_README.format(
-        thing=new_thing, package=new_package, script=new_script
-    )
+    project_readme = _PROJECT_README.format(thing=new_thing, package=new_package, script=new_script)
+    if "\r\n" in _read(readme):  # keep the line endings of the file it replaces
+        project_readme = project_readme.replace("\n", "\r\n")
+    rewrites[readme] = project_readme
 
     # ---- cem.toml: entry point, parameters class and the [cem].name ----
     cem_toml = ROOT / "cem.toml"
@@ -367,7 +401,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument(
         "--offline",
         action="store_true",
-        help="run with no network and no uv; the lockfile is rewritten as text (always true)",
+        help=("accepted for callers that require it; this script never uses the network or uv"),
     )
     args = ap.parse_args(argv)
     thing = args.thing
@@ -423,6 +457,12 @@ def main(argv: list[str] | None = None) -> int:
     _write_atomic(pyproject, rewrites.pop(pyproject))
     for path, text in rewrites.items():
         _write_atomic(path, text)
+    for path in _clash_removals(new_package, thing):
+        if path.is_dir():
+            shutil.rmtree(path)
+        else:
+            path.unlink()
+        print(f"removed  : {path.relative_to(ROOT)} (its name is this CEM's package)")
     if new_package != OLD_PACKAGE:
         (ROOT / "src" / OLD_PACKAGE).rename(ROOT / "src" / new_package)
 
@@ -454,6 +494,14 @@ def main(argv: list[str] | None = None) -> int:
         checklist_path.unlink()
         print(f"Removed {checklist_path.relative_to(ROOT)}: nothing left for it to drive.")
 
+    print(
+        "\nNext, in docs/building-a-cem.md:\n"
+        "  1. wire up release control (.github/CODEOWNERS)\n"
+        "  2. rewrite parameters.py: the design\n"
+        "  3. rewrite sdm/trees_*.py: one function per feature\n"
+        "  4. update cem.toml to match\n"
+        "  5. rewrite tests/test_build.py's field assertions"
+    )
     return 0
 
 
