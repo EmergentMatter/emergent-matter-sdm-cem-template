@@ -4,8 +4,8 @@
 # one. The root file is short; this is the full annotated version it points at.
 #
 # A cem.toml is what a tool reads when handed a repo, and it is read WITHOUT
-# importing anything: the MCP server's `read_cem`
-# parses it and never resolves `entry_point`. Keep it that way: the moment
+# importing anything: `sdm-sidecar cem show` parses it and never
+# resolves `entry_point`. Keep it that way: the moment
 # reading a manifest runs code, "list the CEMs I have" becomes a supply-chain
 # question.
 #

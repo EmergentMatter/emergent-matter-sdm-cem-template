@@ -5,17 +5,26 @@ The template's own part is a rounded block (see `test_build.py`). The bushing
 is kept as the worked example of a full CEM, and these are its tests: the
 field evaluated at points whose answers are known by hand, the derived values,
 and the constraints `validate()` owns. Its manifest is held to the same drift
-checks as the template's in `test_manifest.py`.
+checks as the template's (`manifest_checks.py`).
 """
 
 from __future__ import annotations
 
 import dataclasses
 import math
+from pathlib import Path
 
 import pytest
-from bushing_sdf.bushing import build_bushing_part
+from bushing_sdf.bushing import PARAM_FIELDS, build_bushing_part
 from bushing_sdf.parameters import BushingParameters
+from manifest_checks import CHECKS, Case
+
+CASE = Case(
+    Path(__file__).resolve().parents[1] / "examples" / "bushing_sdf" / "cem.toml",
+    BushingParameters,
+    PARAM_FIELDS,
+    strict=True,
+)
 
 
 @pytest.fixture(scope="module")
@@ -198,3 +207,18 @@ def test_the_bbox_contains_the_part() -> None:
     lo, hi = p.bbox()
     assert lo[0] <= -max(p.d_outer_radius, p.d_flange_radius)
     assert hi[2] >= p.d_length
+
+
+# ── the annotated manifest ─────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize("check", sorted(CHECKS))
+def test_the_annotated_manifest_agrees_with_the_code(check: str) -> None:
+    """The example's `cem.toml` is documentation, and documentation nothing
+    checks goes stale. It gets the template's checks with the stricter floors
+    that keep their loops from passing on nothing."""
+    CHECKS[check](CASE)
+
+
+def test_the_manifest_names_the_part_it_builds() -> None:
+    assert CASE.cem["name"] == build_bushing_part().name

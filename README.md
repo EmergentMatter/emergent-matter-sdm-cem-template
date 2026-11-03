@@ -71,10 +71,16 @@ Then, in this order:
 
 1. **Rename the template to your CEM: `python3 scripts/rename.py <thing>`.**
    Renames `src/widget_sdf/` and the console script `widget-build`, fixes
-   every import and manifest reference that names either, renames the repo
-   slug everywhere `pyproject.toml` and `ci.yml` carry it, renames the root
-   package in `uv.lock` so `uv sync --locked` still passes, and resets the
-   release history (step 2, below). `<thing>` becomes a Python package
+   every import and manifest reference that names either, renames the
+   parameters class and the part builder, sets `cem.toml`'s `[cem].name` and
+   the CLI's default `--name` to `<thing>`, renames the repo slug everywhere
+   `pyproject.toml` and `ci.yml` carry it, renames the root package in
+   `uv.lock` so `uv sync --locked` still passes, resets the release history
+   (step 2, below), and **replaces this README** with a short one for your
+   CEM (the steps and rules that were here are in
+   [`docs/building-a-cem.md`](docs/building-a-cem.md), which stays). If
+   `<thing>_sdf` is the name of an example under `examples/`, that example
+   and its test file are removed. `<thing>` becomes a Python package
    name, so it has to be lowercase snake_case. The new repo slug is
    `<company-name>-cem-<thing>`, where `<company-name>` defaults to
    `emergent-matter`; forking this template outside Emergent Matter,
@@ -87,81 +93,11 @@ Then, in this order:
 2. **Release history is already reset.** The script above set
    `[project].version` back to `0.1.0` and emptied `changelog.d/`: the
    template's own notes describe changes to the template, not to your CEM.
-3. **Wire up release control for your CEM.** `.github/workflows/version.yml`
-   needs no repo secret: `emergent-matter-sdm-core` resolves from the org's
-   package index, not a private-sibling checkout. Adjust
-   `.github/CODEOWNERS` if this CEM has different owners than the
-   template's default.
-4. **Rewrite `parameters.py`.** This is the design. Declared fields, derived
-   `@property`, and `validate()`: see the rules below.
-5. **Rewrite `sdm/trees_*.py`.** One function per feature.
-6. **Update `cem.toml`** to match. `tests/test_manifest.py` fails until it does,
-   in both directions.
-7. **Rewrite `tests/test_build.py`'s field assertions** for your geometry. Keep
-   the *style*: points whose answers you know by hand.
-
-## The rules this template encodes
-
-### Derived values are `@property`. Never a field.
-
-`d_half_min_side` is `min(d_length, d_width, d_height) / 2`. Write it down as a
-field and it becomes a second source of truth that nothing keeps in sync:
-which is exactly how a param edit produces geometry that violates the model
-with nothing reporting a problem. This is not hypothetical: it is
-the hexafoil bug,
-where derived params were flattened into free params at authoring time and
-the viewer faithfully rendered the inconsistent state.
-
-Corollary, enforced by `test_derived_values_are_not_declared_as_params`: a
-derived value must not ship in the `.sdm` as a free param either.
-
-### `validate()` returns a list. It does not raise.
-
-An optimizer or a coder agent should see every problem at once, not fix five
-things in five round trips. `build_*_part()` is what raises.
-
-### The interesting constraints are not bounds
-
-Per-param bounds cannot express `d_edge_radius < d_half_min_side`, a limit
-on a *derived* value. The bushing example adds an ordering like
-`tube < bolt_circle < flange` and a floor on `d_flange_ligament` (which depends
-on `n_bolt_holes`). Those go in
-`validate()` **and** in `cem.toml`'s `[[cem.constraints]]`, each with a `why`:
-a constraint whose reason lives only in someone's head gets relaxed by the
-next person who finds it inconvenient.
-
-`test_every_declared_constraint_is_actually_enforced` is what stops the two
-from drifting.
-
-### `cem.toml` is the machine-readable surface
-
-Every param with its type, default, unit, coupling `role`, bounds, and the
-name it `emits` as in the `.sdm`. It is read **without importing anything**:
-the MCP server's `read_cem` parses it and never resolves `entry_point`. Keep it
-that way: the moment reading a manifest runs code, "list the CEMs I have"
-becomes a supply-chain question.
-
-What each `role` costs to change is documented once, in `cem.toml`'s own
-header comment; this file doesn't repeat it.
-
-### The CLI takes `--out` **and** `--set`, and the document says so
-
-The viewer's `/reemit` contract requires both. A CEM with only `--set` fails
-inside a subprocess, where the error is easy to lose entirely.
-
-The document also **declares** them, as `metadata.generator.accepts`. A tool
-cannot tell from the recorded argv which flags a CLI understands, and without
-the declaration its only option is to write edited values into the `.sdm` and
-hope the generator reads its own output. `harness.py` stamps the declaration
-and `check_contract.py` fails without it.
-
-`harness.py` stamps `metadata.generator` with the command that produced the
-file, as `uv run --frozen <script> ...` with a `cwd` relative to the `.sdm`, so
-the file re-emits on any machine. Without it the `.sdm` can be rendered and never re-derived.
-
-**Read [`docs/traps.md`](docs/traps.md) before writing geometry.** It is the
-list of mistakes this stack lets you make that produce a document that
-builds, validates, and is wrong.
+3. **Everything after the rename** is in
+   [`docs/building-a-cem.md`](docs/building-a-cem.md): wiring up release
+   control, rewriting `parameters.py`, the trees, `cem.toml` and the build
+   test, and the rules a CEM follows. The script prints this list when it
+   finishes.
 
 ## Tests
 

@@ -1,7 +1,7 @@
 # cem.toml: this CEM's declared surface.
 #
-# A tool reads this file WITHOUT importing anything: the MCP server's
-# `read_cem` parses it and never resolves `entry_point`. Keep it that way.
+# A tool reads this file WITHOUT importing anything: `sdm-sidecar cem show`
+# parses it and never resolves `entry_point`. Keep it that way.
 #
 # `role` says what a change COSTS: live (a uniform write), re-emit (baked into
 # the shader; sub-second), topology (changes the node count), derived (a floor

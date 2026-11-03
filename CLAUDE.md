@@ -23,8 +23,8 @@ That second one earns its keep here more than in most repos. This template is
 copied into every new CEM, so a paragraph that goes stale here goes stale in
 every one of them, and nothing fails when it does.
 
-Read `README.md` first: it is the rules, and this file is the working
-practice on top of them.
+Read [docs/building-a-cem.md](docs/building-a-cem.md) first: it is the rules,
+and this file is the working practice on top of them.
 
 Some files here are delivered by the shared
 [`actions`](https://github.com/EmergentMatter/actions) templates and kept
@@ -46,13 +46,14 @@ Every part in this repo is built through the CEM.
 - Change the part by editing the parameters and the tree builders under
   `src/widget_sdf/sdm/`, never by writing a new script beside them.
 - Build with the package's CLI:
+  `uv run widget-build --out <file>.sdm --set <name>=<value>`. In an
+  environment without `uv`, such as a prebuilt image with the dependencies
+  already installed, run the same CLI as
   `PYTHONPATH=src python -m widget_sdf.sdm.cli --out <file>.sdm --set <name>=<value>`.
-  `uv run widget-build --out <file>.sdm` is the equivalent where `uv` is
-  installed.
 - Never write a standalone script or notebook that builds geometry with fixed
   values.
-- Run `python -m pytest` after a change (`uv run pytest` where `uv` is
-  installed). A new parameter follows the checklist under "Adding a
+- Run `uv run pytest` after a change (`python -m pytest` where there is no
+  `uv`). A new parameter follows the checklist under "Adding a
   parameter" below.
 
 ## What a CEM is, and what it is not
@@ -86,10 +87,11 @@ derived relationships are already lost, because a tree records `9.0`, not
 
 `d_half_min_side` is `@property`. So is anything computed from declared fields.
 
-README's "Derived values are `@property`. Never a field." section has the
-full story, the hexafoil bug; the rule it forces is: **a wrong CEM does not
-crash, it produces a plausible part**, because nothing errors when a derived
-value quietly disagrees with the inputs it's supposed to track.
+The "Derived values are `@property`. Never a field." section of
+[docs/building-a-cem.md](docs/building-a-cem.md) has the full story, the
+hexafoil bug; the rule it forces is: **a wrong CEM does not crash, it
+produces a plausible part**, because nothing errors when a derived value
+quietly disagrees with the inputs it's supposed to track.
 
 Two tests hold the line, and both matter:
 `test_derived_values_are_not_declared_as_params` (not in `cem.toml`, not in the

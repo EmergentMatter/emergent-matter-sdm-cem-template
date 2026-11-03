@@ -118,6 +118,41 @@ def _renamed_copy(tmp_path: Path) -> tuple[Path, ModuleType, ModuleType, ModuleT
     return dst, parameters, assembly, cli
 
 
+@pytest.fixture(scope="module")
+def renamed_base(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """One offline-renamed copy, shared by the tests that only read it or copy
+    it. Tests that change a copy call `_variant` first."""
+    dst = tmp_path_factory.mktemp("base") / "renamed"
+    _copy_tree(dst)
+    result = _run_rename(dst, offline=True)
+    assert result.returncode == 0, result.stderr
+    return dst
+
+
+def _variant(base: Path, tmp_path: Path) -> Path:
+    dst = tmp_path / "variant"
+    shutil.copytree(base, dst)
+    return dst
+
+
+def _pytest(dst: Path, *args: str) -> subprocess.CompletedProcess:
+    """`dst`'s own tests, run as its owner would, with its `src` first on the
+    path (the venv's editable install points at the template's own)."""
+    return subprocess.run(
+        [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", *args],
+        cwd=dst,
+        capture_output=True,
+        text=True,
+        timeout=600,
+        env={**os.environ, "PYTHONPATH": str(dst / "src")},
+    )
+
+
+def _passed(result: subprocess.CompletedProcess) -> None:
+    assert result.returncode == 0, result.stdout[-2500:] + result.stderr[-1500:]
+    assert " passed" in result.stdout
+
+
 def test_the_script_refuses_an_invalid_thing_name(tmp_path: Path) -> None:
     """`<thing>` becomes a Python package name (`<thing>_sdf`); fed
     something that can't be, the script has to say so and stop rather than
@@ -303,7 +338,7 @@ def test_manifest_and_dataclass_still_agree_after_the_rename(tmp_path: Path) -> 
     entry = getattr(importlib.import_module(mod_name), attr, None)
     assert callable(entry), (
         f"cem.toml's entry_point {cem['entry_point']!r} does not resolve "
-        "after the rename: the MCP server's read_cem would fail to build this CEM"
+        "after the rename: `sdm-sidecar cem show` would fail to read this CEM's entry point"
     )
 
 
@@ -390,10 +425,11 @@ def test_the_readme_is_replaced_by_the_projects_own(tmp_path: Path) -> None:
     assert "Made from the Emergent Matter CEM template." in readme
     assert "PYTHONPATH=src python -m gear_box_sdf.sdm.cli --out part.sdm" in readme
     assert "uv run gear_box-build" in readme
-    assert "python -m pytest" in readme
-    assert "CLAUDE.md" in readme
+    assert "uv run pytest" in readme and "python -m pytest" in readme
+    assert "## Tests" in readme, "ci.yml points at the README's Tests section"
+    assert "CLAUDE.md" in readme and "docs/building-a-cem.md" in readme
     assert "Template for a Software Defined" not in readme
-    assert len(readme.splitlines()) < 40
+    assert len(readme.splitlines()) < 50
 
 
 def test_a_missing_readme_stops_the_script_before_anything_changes(tmp_path: Path) -> None:
@@ -439,59 +475,64 @@ def _normalized_old_slug() -> str:
     return OLD_SLUG.replace("_", "-").lower()
 
 
-def test_an_offline_rename_leaves_a_working_cem_whose_own_tests_pass(tmp_path: Path) -> None:
-    dst = tmp_path / "renamed"
-    _copy_tree(dst)
-    assert _run_rename(dst, offline=True).returncode == 0
-
-    result = subprocess.run(
-        [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", "tests"],
-        cwd=dst,
-        capture_output=True,
-        text=True,
-        timeout=600,
-        # The venv's editable install points at the template's own src/, so
-        # the copy's renamed package is put first on the path explicitly.
-        env={**os.environ, "PYTHONPATH": str(dst / "src")},
-    )
-
-    assert result.returncode == 0, result.stdout[-2000:] + result.stderr[-2000:]
-    assert "passed" in result.stdout
-    assert not (dst / "tests" / "test_rename_checklist.py").exists()
+def test_an_offline_rename_leaves_a_working_cem_whose_own_tests_pass(renamed_base: Path) -> None:
+    _passed(_pytest(renamed_base, "tests"))
+    assert not (renamed_base / "tests" / "test_rename_checklist.py").exists()
 
 
-def test_the_build_command_in_claude_md_runs_in_the_renamed_copy(tmp_path: Path) -> None:
-    """The agent's build line, as CLAUDE.md gives it, with no `uv` on PATH."""
-    dst = tmp_path / "renamed"
-    _copy_tree(dst)
-    assert _run_rename(dst, offline=True).returncode == 0
-    doc = (dst / "CLAUDE.md").read_text()
-    line = f"PYTHONPATH=src python -m {NEW_PACKAGE}.sdm.cli --out <file>.sdm"
-    assert line in doc
+def _leads_with_uv(text: str, script: str, package: str) -> bool:
+    """The documented build lines are both present and `uv run` comes first."""
+    uv_line = f"uv run {script} --out"
+    fallback = f"PYTHONPATH=src python -m {package}.sdm.cli --out"
+    return uv_line in text and fallback in text and text.index(uv_line) < text.index(fallback)
 
-    out = dst / "part.sdm"
+
+def test_the_documented_build_lines_lead_with_uv_and_the_script_is_real(
+    renamed_base: Path,
+) -> None:
+    """What this proves: CLAUDE.md and the README both give `uv run <script>`
+    first and the `PYTHONPATH=src python -m` form as the fallback, and
+    `<script>` is a real `[project.scripts]` entry of the renamed package's CLI.
+    It does not run `uv` (that needs an index)."""
+    scripts = tomllib.loads((renamed_base / "pyproject.toml").read_text())["project"]["scripts"]
+    assert scripts == {f"{THING}-build": f"{NEW_PACKAGE}.sdm.cli:main"}
+    for name in ("CLAUDE.md", "README.md"):
+        text = (renamed_base / name).read_text()
+        assert _leads_with_uv(text, f"{THING}-build", NEW_PACKAGE), name
+
+
+def test_the_ordering_check_can_fail() -> None:
+    uv_line = "uv run thing-build --out"
+    fallback = "PYTHONPATH=src python -m thing_sdf.sdm.cli --out"
+    assert _leads_with_uv(f"{uv_line} x\n{fallback} y", "thing-build", "thing_sdf")
+    assert not _leads_with_uv(f"{fallback} y\n{uv_line} x", "thing-build", "thing_sdf")
+    assert not _leads_with_uv(f"{uv_line} x", "thing-build", "thing_sdf")
+
+
+def test_the_fallback_build_line_runs_without_uv_on_the_path(renamed_base: Path) -> None:
+    """What this proves: the fallback line's module runs under an interpreter
+    that already has the dependencies, with `src` on the path and no `uv` on
+    `PATH`. The interpreter here is the test venv's, which has every
+    dependency; the line is not shown to work on an interpreter without them."""
+    out = renamed_base / "fallback.sdm"
     result = subprocess.run(
         [sys.executable, "-m", f"{NEW_PACKAGE}.sdm.cli", "--out", str(out)],
-        cwd=dst,
+        cwd=renamed_base,
         capture_output=True,
         text=True,
-        env={"PATH": "/nonexistent", "PYTHONPATH": str(dst / "src")},
+        env={"PATH": "/nonexistent", "PYTHONPATH": str(renamed_base / "src")},
     )
 
     assert result.returncode == 0, result.stderr
     assert json.loads(out.read_text())["name"] == THING
 
 
-def test_the_build_command_needs_src_on_the_path(tmp_path: Path) -> None:
+def test_the_fallback_build_line_needs_src_on_the_path(renamed_base: Path) -> None:
     """Without `PYTHONPATH=src` the renamed package is not importable, so the
     line's prefix is not decoration."""
-    dst = tmp_path / "renamed"
-    _copy_tree(dst)
-    assert _run_rename(dst, offline=True).returncode == 0
-
     result = subprocess.run(
-        [sys.executable, "-m", f"{NEW_PACKAGE}.sdm.cli", "--out", str(dst / "x.sdm")],
-        cwd=dst,
+        [sys.executable, "-m", f"{NEW_PACKAGE}.sdm.cli", "--out", str(renamed_base / "x.sdm")],
+        cwd=renamed_base,
         capture_output=True,
         text=True,
         env={"PATH": "/nonexistent"},
@@ -691,6 +732,8 @@ def test_the_oracle_can_fail(tmp_path: Path) -> None:
 
 
 #: Every file the rename rewrites that carries a non-ASCII `─` ruler.
+NAME_ONLY = ("scripts/bootstrap.py", "scripts/doctor.py", "CLAUDE.md")
+
 _RULED_FILES = (
     "pyproject.toml",
     "cem.toml",
@@ -704,21 +747,31 @@ def test_files_with_windows_line_endings_keep_them_and_their_encoding(tmp_path: 
     text encoding there is the locale's, not UTF-8. Run under an ASCII
     locale, every rewritten file has to come back CRLF with its `─` rulers
     intact, and the version and package-name, whose regexes must see past
-    the `\\r`, still have to be rewritten."""
+    the `\\r`, still have to be rewritten. That includes the README the
+    script writes whole, the name-only files, and the files only the bare
+    word `widget` reaches."""
     dst = tmp_path / "renamed"
     _copy_tree(dst)
     rewritten = [
         dst / "pyproject.toml",
         dst / "cem.toml",
+        dst / "README.md",
         dst / ".github" / "workflows" / "ci.yml",
         dst / "uv.lock",
+        *(dst / name for name in NAME_ONLY),
         *(
             p
             for sub in _PACKAGE_DIRS
             for p in (dst / sub).rglob("*.py")
-            if OLD_PACKAGE in p.read_text() and p.name != "test_rename_checklist.py"
+            if "widget" in p.read_text().lower() and p.name != "test_rename_checklist.py"
         ),
     ]
+    only_bare = [
+        p
+        for p in rewritten
+        if p.suffix == ".py" and OLD_PACKAGE not in p.read_text() and "widget" in p.read_text()
+    ]
+    assert only_bare, "no file is reached by the bare word alone; update the test"
     for path in rewritten:
         path.write_bytes(path.read_bytes().replace(b"\n", b"\r\n"))
     for name in _RULED_FILES:
@@ -735,6 +788,9 @@ def test_files_with_windows_line_endings_keep_them_and_their_encoding(tmp_path: 
         after = path.read_bytes()
         assert b"\n" not in after.replace(b"\r\n", b""), f"{path} lost its CRLF line endings"
         assert OLD_PACKAGE.encode() not in after, f"{path} was not rewritten"
+        if path.suffix == ".py":
+            assert b"widget" not in after.lower(), f"{path} still names widget"
+    assert (dst / "README.md").read_bytes().startswith(b"# thing\r\n")
     for name in _RULED_FILES:
         name = name.replace(OLD_PACKAGE, NEW_PACKAGE)
         assert "─" in (dst / name).read_bytes().decode("utf-8"), f"{name} lost its rulers"
@@ -743,6 +799,11 @@ def test_files_with_windows_line_endings_keep_them_and_their_encoding(tmp_path: 
     ci_text = (dst / ".github" / "workflows" / "ci.yml").read_bytes().decode("utf-8")
     assert f"          package-name: {NEW_SLUG}\r\n" in ci_text
     assert _root_lock_entry(dst / "uv.lock")["name"] == NEW_SLUG
+
+
+def test_an_lf_readme_is_replaced_by_an_lf_readme(renamed_base: Path) -> None:
+    """The control for the CRLF case: the line endings follow the file."""
+    assert b"\r" not in (renamed_base / "README.md").read_bytes()
 
 
 def _snapshot(tree: Path) -> dict[Path, bytes]:
@@ -938,3 +999,231 @@ def test_a_rerun_with_a_different_name_after_a_failed_write_is_refused(tmp_path:
     assert result.returncode == 1
     assert "[project].name" in result.stderr
     assert _snapshot(dst) == before
+
+
+# ── what the renamed repo points at, and what it can lose ─────────────────
+
+
+def _doc_problems(root: Path) -> tuple[int, list[str]]:
+    """How many `docs/*.md` pointers and quoted-section pointers the renamed
+    repo's own docs carry, and which of them lead nowhere."""
+    files = [
+        root / "CLAUDE.md",
+        root / "README.md",
+        root / "docs" / "traps.md",
+        root / "docs" / "building-a-cem.md",
+        root / "src" / NEW_PACKAGE / "__init__.py",
+    ]
+    found = 0
+    problems = []
+    for path in files:
+        if not path.is_file():
+            continue
+        text = path.read_text(encoding="utf-8")
+        for m in re.finditer(r"(?<![\w/.-])docs/[\w-]+\.md", text):
+            found += 1
+            if not (root / m.group()).is_file():
+                problems.append(f"{path.name}: {m.group()} does not exist")
+        for m in re.finditer(r'"([^"]+)" section of\s+\[?(docs/[\w-]+\.md)', text):
+            found += 1
+            target = root / m.group(2)
+            headings = (
+                [line.lstrip("# ").strip() for line in target.read_text().splitlines()]
+                if target.is_file()
+                else []
+            )
+            if m.group(1) not in headings:
+                problems.append(f"{path.name}: no section {m.group(1)!r} in {m.group(2)}")
+    return found, problems
+
+
+def test_every_section_the_renamed_docs_point_to_exists(renamed_base: Path) -> None:
+    found, problems = _doc_problems(renamed_base)
+
+    assert found >= 6
+    assert problems == []
+    claude = (renamed_base / "CLAUDE.md").read_text()
+    assert "README's" not in claude and "Read `README.md` first" not in claude
+
+
+def test_a_pointer_to_a_missing_doc_or_section_is_reported(
+    renamed_base: Path, tmp_path: Path
+) -> None:
+    dst = _variant(renamed_base, tmp_path)
+    doc = dst / "docs" / "building-a-cem.md"
+    doc.write_text(doc.read_text().replace("### Derived values", "### Derived things"))
+    _, problems = _doc_problems(dst)
+    assert any("Derived values" in p for p in problems)
+
+    doc.unlink()
+    _, problems = _doc_problems(dst)
+    assert any("does not exist" in p for p in problems)
+
+
+def test_the_renamed_suite_survives_deleting_the_examples(
+    renamed_base: Path, tmp_path: Path
+) -> None:
+    """The examples say "delete this directory when you start your own CEM",
+    and the CEM's own manifest checks must not go with them."""
+    dst = _variant(renamed_base, tmp_path)
+    example_tests = sorted((dst / "tests").glob("test_example_*.py"))
+    assert len(example_tests) == 2
+    shutil.rmtree(dst / "examples")
+    for path in example_tests:
+        path.unlink()
+
+    result = _pytest(dst)
+
+    _passed(result)
+    assert "test_manifest.py" in "".join(p.name for p in (dst / "tests").iterdir())
+
+
+def _plain_box(dst: Path) -> None:
+    """Cut the renamed CEM down to a box with no derived value and no
+    constraint, the smallest real CEM."""
+    package = dst / "src" / NEW_PACKAGE
+    (package / "parameters.py").write_text(
+        "from __future__ import annotations\n\n"
+        "from dataclasses import dataclass\n\n\n"
+        "@dataclass(frozen=True)\n"
+        "class ThingParameters:\n"
+        "    d_length: float = 40.0\n"
+        "    d_width: float = 30.0\n"
+        "    d_height: float = 20.0\n"
+        "    d_voxel_size_mm: float = 0.25\n\n"
+        "    def bbox(self):\n"
+        "        v = self.d_voxel_size_mm\n"
+        "        return (\n"
+        "            [-self.d_length / 2 - v, -self.d_width / 2 - v, -v],\n"
+        "            [self.d_length / 2 + v, self.d_width / 2 + v, self.d_height + v],\n"
+        "        )\n\n"
+        "    def validate(self):\n"
+        "        return []\n"
+    )
+    toml = (dst / "cem.toml").read_text()
+    toml = re.sub(r"\[cem\.params\.d_edge_radius\].*?(?=\n\[)", "", toml, flags=re.S)
+    toml = re.sub(r"\[\[cem\.constraints\]\].*?(?=\n\[\[cem\.objectives)", "", toml, flags=re.S)
+    (dst / "cem.toml").write_text(toml)
+    assembly = package / "sdm" / "assembly.py"
+    assembly.write_text(
+        "\n".join(
+            line for line in assembly.read_text().splitlines() if '"d_edge_radius"' not in line
+        )
+        + "\n"
+    )
+    trees = package / "sdm" / "trees_body.py"
+    trees.write_text(trees.read_text().replace("p.d_edge_radius", "0.0"))
+
+
+def test_the_manifest_checks_pass_for_a_plain_box_with_no_derived_value_and_no_constraint(
+    renamed_base: Path, tmp_path: Path
+) -> None:
+    dst = _variant(renamed_base, tmp_path)
+    _plain_box(dst)
+    cem = tomllib.loads((dst / "cem.toml").read_text())["cem"]
+    assert sorted(cem["params"]) == ["d_height", "d_length", "d_voxel_size_mm", "d_width"]
+    assert "constraints" not in cem
+
+    _passed(_pytest(dst, "tests/test_manifest.py"))
+
+
+def test_the_manifest_checks_pass_after_changing_a_default_in_both_files(
+    renamed_base: Path, tmp_path: Path
+) -> None:
+    dst = _variant(renamed_base, tmp_path)
+    params = dst / "src" / NEW_PACKAGE / "parameters.py"
+    params.write_text(
+        params.read_text().replace("d_length: float = 40.0", "d_length: float = 50.0")
+    )
+    toml = dst / "cem.toml"
+    toml.write_text(toml.read_text().replace("default = 40.0", "default = 50.0", 1))
+
+    _passed(_pytest(dst, "tests/test_manifest.py"))
+
+
+def test_the_manifest_checks_fail_after_changing_a_default_in_one_file_only(
+    renamed_base: Path, tmp_path: Path
+) -> None:
+    dst = _variant(renamed_base, tmp_path)
+    toml = dst / "cem.toml"
+    toml.write_text(toml.read_text().replace("default = 40.0", "default = 50.0", 1))
+
+    result = _pytest(dst, "tests/test_manifest.py")
+
+    assert result.returncode != 0
+    assert "defaults_match_the_dataclass" in result.stdout
+
+
+# ── a thing named like an example ─────────────────────────────────────────
+
+
+@pytest.mark.parametrize(("thing", "other"), [("plate", "bushing"), ("bushing", "plate")])
+def test_a_thing_named_like_an_example_removes_only_that_example(
+    tmp_path: Path, renamed_base: Path, thing: str, other: str
+) -> None:
+    """No project name is refused: the example whose package the new name
+    would collide with, and its test file, go; the other example stays."""
+    assert (renamed_base / "examples" / f"{thing}_sdf").is_dir(), "the control keeps both"
+    assert (renamed_base / "tests" / f"test_example_{thing}.py").is_file()
+    dst = tmp_path / "renamed"
+    _copy_tree(dst)
+
+    result = _run_rename(dst, thing=thing, offline=True)
+
+    assert result.returncode == 0, result.stderr
+    assert not (dst / "examples" / f"{thing}_sdf").exists()
+    assert not (dst / "tests" / f"test_example_{thing}.py").exists()
+    assert (dst / "examples" / f"{other}_sdf").is_dir()
+    assert (dst / "tests" / f"test_example_{other}.py").is_file()
+    assert (dst / "src" / f"{thing}_sdf" / "parameters.py").is_file()
+    _passed(_pytest(dst))
+
+
+# ── the thing's shape, the flag's wording, what the script prints ─────────
+
+
+@pytest.mark.parametrize("bad", ["gear_", "gear__box", "_gear", "gear-box", "Gear"])
+def test_a_thing_with_a_stray_separator_is_refused_and_changes_nothing(
+    tmp_path: Path, bad: str
+) -> None:
+    dst = tmp_path / "renamed"
+    _copy_tree(dst)
+    before = _snapshot(dst)
+
+    result = _run_rename(dst, thing=bad, offline=True)
+
+    assert result.returncode == 1
+    assert result.stderr.startswith("error:")
+    assert _snapshot(dst) == before
+
+
+@pytest.mark.parametrize("thing", ["x_cem", "p_1", "a1_b2"])
+def test_a_thing_that_is_snake_case_with_digits_is_accepted(tmp_path: Path, thing: str) -> None:
+    dst = tmp_path / "renamed"
+    _copy_tree(dst)
+
+    assert _run_rename(dst, thing=thing, offline=True).returncode == 0
+    assert (dst / "src" / f"{thing}_sdf").is_dir()
+
+
+def test_offline_is_described_in_general_terms() -> None:
+    script = ROOT / "scripts" / "rename.py"
+    result = subprocess.run(
+        [sys.executable, str(script), "--help"], capture_output=True, text=True, timeout=60
+    )
+
+    assert result.returncode == 0
+    assert "never uses the network or uv" in " ".join(result.stdout.split())
+    assert "broker" not in script.read_text().lower()
+
+
+def test_the_script_prints_where_to_go_next(tmp_path: Path) -> None:
+    dst = tmp_path / "renamed"
+    _copy_tree(dst)
+
+    result = _run_rename(dst, offline=True)
+
+    assert "docs/building-a-cem.md" in result.stdout
+    for step in ("release control", "parameters.py", "trees_*.py", "cem.toml", "test_build.py"):
+        assert step in result.stdout
+    assert (dst / "docs" / "building-a-cem.md").is_file()
