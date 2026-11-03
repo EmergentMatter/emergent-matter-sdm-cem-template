@@ -80,11 +80,11 @@ geometry to an agent.
 Doing 3 before 1 produces geometry with the numbers inline, and then the
 parameters get "extracted" later by reading the tree: at which point the
 derived relationships are already lost, because a tree records `9.0`, not
-`outer_radius - wall_thickness`.
+`min(length, width, height) / 2`.
 
 ## Never store a derived value
 
-`d_bore_radius` is `@property`. So is anything computed from declared fields.
+`d_half_min_side` is `@property`. So is anything computed from declared fields.
 
 README's "Derived values are `@property`. Never a field." section has the
 full story, the hexafoil bug; the rule it forces is: **a wrong CEM does not
@@ -108,6 +108,9 @@ once per module) and it is the only thing that distinguishes "it built" from
 "it built the right thing".
 
 ## Adding a parameter: the full checklist
+
+`examples/bushing_sdf/` is a full worked CEM to copy from, with an annotated
+`cem.toml`.
 
 Miss any step and the failure is silent:
 

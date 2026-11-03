@@ -69,90 +69,60 @@ def test_it_validates_against_the_schema(part, tmp_path) -> None:
     assert load(p, b_validate_schema=True) is not None
 
 
+def test_it_ships_every_design_param_with_a_range(part) -> None:
+    """The Scene pane builds a slider from each emitted param's bounds."""
+    assert sorted(part.params) == ["edge_radius", "height", "length", "width"]
+    for param in part.params.values():
+        assert param.bounds is not None and param.bounds[0] < param.bounds[1]
+
+
 def test_invalid_parameters_do_not_produce_geometry() -> None:
     """A CEM that emits from invalid params makes a plausible-looking part that
     violates its own design rules, and nothing downstream can tell."""
-    bad = dataclasses.replace(WidgetParameters(), n_bolt_holes=24)
-    with pytest.raises(ValueError, match="flange_ligament_floor"):
+    bad = dataclasses.replace(WidgetParameters(), d_edge_radius=15.0)
+    with pytest.raises(ValueError, match="edge_radius_below_half_smallest_side"):
         build_widget_part(bad)
 
 
 # ── the field, at points whose answers are known by hand ───────────────────
 
 
-def test_the_tube_wall_is_solid(field) -> None:
+def test_the_centre_is_solid(field) -> None:
     p = WidgetParameters()
-    r_mid = (p.d_bore_radius + p.d_outer_radius) / 2.0
-    assert field([r_mid, 0.0, p.d_length * 0.75])[0] < 0.0
+    assert field([0.0, 0.0, p.d_height / 2.0])[0] < 0.0
 
 
-def test_the_bore_is_open_all_the_way_through(field) -> None:
-    """The regression guard for subtract-last.
-
-    Cut the bore inside `tube_tree` and union the flange over it and the bore
-    fills in where the flange overlaps: a blocked bushing that still sections
-    correctly through the tube.
-    """
+def test_the_block_is_exactly_as_long_as_declared(field) -> None:
+    """The half-extent trap. `b=d_length` instead of `b=d_length/2` builds a
+    block of exactly double the size and nothing else complains."""
     p = WidgetParameters()
-    # fmt: off
-    for z in (p.d_flange_thickness * 0.5,          # inside the flange
-              p.d_flange_thickness + 1.0,          # just past it
-              p.d_length * 0.5, p.d_length * 0.9):  # up the tube
-        # fmt: on
-        assert field([0.0, 0.0, z])[0] > 0.0, f"bore is blocked at z={z}"
+    z = p.d_height / 2.0
+    assert field([p.d_length / 2.0 - 0.2, 0.0, z])[0] < 0.0, "should still be solid"
+    assert field([p.d_length / 2.0 + 0.2, 0.0, z])[0] > 0.0, "should have ended"
 
 
-def test_the_flange_is_solid_between_its_holes(field) -> None:
-    import math
-
+def test_the_block_is_as_wide_and_as_tall_as_declared(field) -> None:
     p = WidgetParameters()
-    mid = p.d_bolt_angular_pitch / 2.0  # halfway between two holes
-    x = p.d_bolt_circle_radius * math.cos(mid)
-    y = p.d_bolt_circle_radius * math.sin(mid)
-    assert field([x, y, p.d_flange_thickness / 2.0])[0] < 0.0
+    assert field([0.0, p.d_width / 2.0 - 0.2, p.d_height / 2.0])[0] < 0.0
+    assert field([0.0, p.d_width / 2.0 + 0.2, p.d_height / 2.0])[0] > 0.0
+    assert field([0.0, 0.0, p.d_height - 0.2])[0] < 0.0
+    assert field([0.0, 0.0, p.d_height + 0.2])[0] > 0.0
 
 
-def test_each_bolt_hole_is_actually_a_hole(field) -> None:
-    """All of them, not just the first. An off-by-one in the angular sweep
-    leaves one hole on top of another and the count still looks right."""
-    import math
+def test_the_block_stands_on_z_zero(field) -> None:
+    assert field([0.0, 0.0, 0.2])[0] < 0.0
+    assert field([0.0, 0.0, -0.2])[0] > 0.0
 
+
+def test_the_edges_are_rounded(field) -> None:
+    """A corner point just inside the sharp envelope is outside the rounded
+    block; with the radius at 0 the same point is solid."""
     p = WidgetParameters()
-    for i in range(p.n_bolt_holes):
-        th = i * p.d_bolt_angular_pitch
-        x = p.d_bolt_circle_radius * math.cos(th)
-        y = p.d_bolt_circle_radius * math.sin(th)
-        d = field([x, y, p.d_flange_thickness / 2.0])[0]
-        assert d > 0.0, f"hole {i} at angle {math.degrees(th):.0f} deg is solid"
-
-
-def test_outside_the_envelope_is_empty(field) -> None:
-    p = WidgetParameters()
-    assert field([0.0, 0.0, p.d_length + 10.0])[0] > 0.0
-    assert field([p.d_flange_radius + 10.0, 0.0, 1.0])[0] > 0.0
-
-
-def test_the_part_is_not_twice_as_long_as_declared(field) -> None:
-    """The half-height trap. `h=d_length` instead of `h=d_length/2` builds a
-    part of exactly double the length and nothing else complains."""
-    p = WidgetParameters()
-    r_mid = (p.d_bore_radius + p.d_outer_radius) / 2.0
-    assert field([r_mid, 0.0, p.d_length * 1.5])[0] > 0.0, (
-        "there is material well past the declared length"
-    )
-
-
-def test_a_bolt_count_of_zero_leaves_a_plain_flange(field) -> None:
-    """`sdf_op("union", [])` is refused by the schema (minItems 1) and its
-    meaning depends on the evaluator's identity element, so the builder returns
-    None instead and the caller skips the subtract."""
+    corner = [p.d_length / 2.0 - 0.1, p.d_width / 2.0 - 0.1, p.d_height - 0.1]
+    assert field(corner)[0] > 0.0
+    sharp = build_widget_part(dataclasses.replace(p, d_edge_radius=0.0))
     import jax.numpy as jnp
     from software_defined_matter.sdf.compile import make_sdf_closure
 
-    p = dataclasses.replace(WidgetParameters(), n_bolt_holes=0)
-    part = build_widget_part(p)
-    fn = make_sdf_closure(part.materials[0].sdf_tree, part)
-    d = fn(
-        jnp.asarray([[p.d_bolt_circle_radius, 0.0, p.d_flange_thickness / 2.0]], dtype=float), None
-    )
-    assert float(d[0]) < 0.0, "the bolt circle should be gone"
+    fn = make_sdf_closure(sharp.materials[0].sdf_tree, sharp)
+    assert float(fn(jnp.asarray([corner], dtype=float), None)[0]) < 0.0

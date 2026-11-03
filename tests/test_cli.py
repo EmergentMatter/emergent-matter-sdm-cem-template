@@ -16,47 +16,57 @@ from pathlib import Path, PureWindowsPath
 import pytest
 
 from widget_sdf.parameters import WidgetParameters
-from widget_sdf.sdm.cli import SCRIPT, main
+from widget_sdf.sdm.cli import SCRIPT, _coerce, main
 
 
 def test_out_and_set_are_both_accepted(tmp_path):
     """The re-emit contract. A CEM with only --set fails inside a subprocess
     where the error surfaces nowhere useful."""
     out = tmp_path / "p.sdm"
-    assert main(["--out", str(out), "--set", "d_outer_radius=14"]) == 0
+    assert main(["--out", str(out), "--set", "d_edge_radius=4"]) == 0
     assert out.exists()
 
 
 def test_set_accepts_the_name_the_sdm_EMITS(tmp_path):
-    """`n_bolt_holes` ships in the .sdm as `bolt_holes`, and the viewer hands
-    the emitted name back on re-emit. A CLI that only knows the field name
-    refuses every re-emit with `unknown parameter 'bolt_holes'`."""
+    """`d_length` ships in the .sdm as `length`, and the viewer hands the
+    emitted name back on re-emit. A CLI that only knows the field name
+    refuses every re-emit with `unknown parameter 'length'`."""
     out = tmp_path / "p.sdm"
-    assert main(["--out", str(out), "--set", "bolt_holes=8"]) == 0
-    assert json.loads(out.read_text())["params"]["bolt_holes"]["value"] == 8
+    assert main(["--out", str(out), "--set", "length=50"]) == 0
+    assert json.loads(out.read_text())["params"]["length"]["value"] == 50
 
 
 def test_set_still_accepts_the_field_name(tmp_path):
     """Both spellings, so a human typing the field name is not punished."""
     out = tmp_path / "p.sdm"
-    assert main(["--out", str(out), "--set", "n_bolt_holes=8"]) == 0
-    assert json.loads(out.read_text())["params"]["bolt_holes"]["value"] == 8
+    assert main(["--out", str(out), "--set", "d_length=50"]) == 0
+    assert json.loads(out.read_text())["params"]["length"]["value"] == 50
 
 
-def test_an_int_param_accepts_a_float_encoded_whole_number(tmp_path):
+def test_an_int_param_accepts_a_float_encoded_whole_number():
     """The .sdm stores every param as a JSON number, so an int round-trips as
     `6.0`. The viewer reads that and passes it straight back, and a plain
     int("6.0") raises with a message about a whole number that IS a whole
-    number, which sends you looking in the wrong place."""
-    out = tmp_path / "p.sdm"
-    assert main(["--out", str(out), "--set", "bolt_holes=8.0"]) == 0
-    assert json.loads(out.read_text())["params"]["bolt_holes"]["value"] == 8
+    number, which sends you looking in the wrong place.
+
+    This template's part has no int param, so the coercion is exercised
+    directly; the bushing example carries an int field of its own."""
+    assert _coerce("n_count", "8.0") == 8
+    assert isinstance(_coerce("n_count", "8.0"), int)
+    assert _coerce("n_count", "8") == 8
 
 
-def test_a_genuinely_non_integral_value_is_still_refused(tmp_path):
+def test_a_genuinely_non_integral_value_is_still_refused():
     """Accepting 6.0 must not mean accepting 6.5."""
-    with pytest.raises(SystemExit):
-        main(["--out", str(tmp_path / "p.sdm"), "--set", "bolt_holes=8.5"])
+    with pytest.raises(ValueError):
+        _coerce("n_count", "8.5")
+
+
+def test_the_prefix_picks_the_type():
+    assert _coerce("d_length", "50") == 50.0
+    assert _coerce("b_flag", "yes") is True
+    assert _coerce("b_flag", "no") is False
+    assert _coerce("s_label", "abc") == "abc"
 
 
 def test_no_two_fields_emit_the_same_name():
@@ -74,23 +84,30 @@ def test_a_typo_names_the_near_miss(tmp_path, capsys):
     """Turns a typo into a one-line fix instead of a silently ignored
     override that changes nothing."""
     with pytest.raises(SystemExit):
-        main(["--out", str(tmp_path / "p.sdm"), "--set", "outer_radius_typo=14"])
+        main(["--out", str(tmp_path / "p.sdm"), "--set", "x_length=50"])
+    assert "did you mean 'd_length'" in capsys.readouterr().err
+
+
+def test_an_unknown_name_with_no_near_miss_is_still_refused(tmp_path, capsys):
+    with pytest.raises(SystemExit):
+        main(["--out", str(tmp_path / "p.sdm"), "--set", "nothing_like_it=1"])
+    assert "unknown parameter" in capsys.readouterr().err
 
 
 def test_invalid_parameters_exit_2_with_a_named_cause(tmp_path, capsys):
     """A subprocess caller reads STDERR to explain a failure. Printing the
     reason to stdout is why the viewer showed 'authoring failed:' with
     nothing after it."""
-    code = main(["--out", str(tmp_path / "p.sdm"), "--set", "n_bolt_holes=24"])
+    code = main(["--out", str(tmp_path / "p.sdm"), "--set", "d_edge_radius=15"])
     assert code == 2
-    assert "flange_ligament_floor" in capsys.readouterr().err
+    assert "edge_radius_below_half_smallest_side" in capsys.readouterr().err
 
 
 def test_the_generator_records_a_command_that_can_be_re_run(tmp_path):
     """The viewer re-executes exactly this on re-emit. If it does not name a
     real entry point, the part is a dead end."""
     out = tmp_path / "p.sdm"
-    main(["--out", str(out), "--set", "d_outer_radius=14"])
+    main(["--out", str(out), "--set", "d_edge_radius=4"])
     gen = json.loads(out.read_text())["metadata"]["generator"]
     # `cwd` is relative to the .sdm's folder, the way the viewer resolves it.
     assert gen["argv"] and (out.parent / gen["cwd"]).is_dir()
@@ -110,7 +127,7 @@ def test_the_recorded_generator_is_idempotent(tmp_path):
     from widget_sdf.sdm.harness import NON_REPLAYABLE_FLAGS
 
     out = tmp_path / "p.sdm"
-    assert main(["--out", str(out), "--set", "d_outer_radius=14"]) == 0
+    assert main(["--out", str(out), "--set", "d_edge_radius=4"]) == 0
     argv = json.loads(out.read_text())["metadata"]["generator"]["argv"]
     assert not (set(argv) & NON_REPLAYABLE_FLAGS), argv
     assert argv[:4] == ["uv", "run", "--frozen", SCRIPT], "the command must still be re-runnable"
@@ -119,7 +136,7 @@ def test_the_recorded_generator_is_idempotent(tmp_path):
 def test_rebuilding_from_the_recorded_command_reproduces_the_document(tmp_path):
     """The property that actually matters: replay it, get the same geometry."""
     first = tmp_path / "a.sdm"
-    main(["--out", str(first), "--set", "d_outer_radius=14", "--set", "n_bolt_holes=5"])
+    main(["--out", str(first), "--set", "d_edge_radius=4", "--set", "length=50"])
     doc = json.loads(first.read_text())
     before = {k: v["value"] for k, v in doc["params"].items()}
 
@@ -146,8 +163,8 @@ def test_the_recorded_generator_names_no_absolute_path(tmp_path):
     """A committed .sdm is opened on other machines and in sandboxes. A path
     into the builder's venv fails there with 'authoring command not found',
     and the engine appends its own --out, so the recorded one is dropped."""
-    gen = _generator(tmp_path, "--set", "d_outer_radius=14")
-    assert gen["argv"] == ["uv", "run", "--frozen", SCRIPT, "--set", "d_outer_radius=14"]
+    gen = _generator(tmp_path, "--set", "d_edge_radius=4")
+    assert gen["argv"] == ["uv", "run", "--frozen", SCRIPT, "--set", "d_edge_radius=4"]
     for arg in gen["argv"]:
         assert not Path(arg).is_absolute()
         assert not PureWindowsPath(arg).is_absolute()

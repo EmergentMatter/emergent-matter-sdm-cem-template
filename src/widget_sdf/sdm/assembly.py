@@ -35,14 +35,10 @@ MATERIAL_NAME = "nylon12_sls"
 #: in the manifest and leaving it out here means the manifest describes a
 #: control nothing can offer.
 PARAM_FIELDS = {
-    "n_bolt_holes": ("count", (0, 24)),
-    "d_outer_radius": ("mm", (4.0, 60.0)),
-    "d_wall_thickness": ("mm", (0.8, 20.0)),
     "d_length": ("mm", (5.0, 200.0)),
-    "d_flange_radius": ("mm", (5.0, 100.0)),
-    "d_flange_thickness": ("mm", (1.0, 30.0)),
-    "d_bolt_hole_radius": ("mm", (0.5, 10.0)),
-    "d_bolt_circle_radius": ("mm", (3.0, 90.0)),
+    "d_width": ("mm", (5.0, 200.0)),
+    "d_height": ("mm", (5.0, 200.0)),
+    "d_edge_radius": ("mm", (0.0, 20.0)),
 }
 
 
@@ -62,7 +58,7 @@ def _params_block(p: WidgetParameters) -> dict:
 
 
 def build_widget_part(params: WidgetParameters | None = None, *, name: str = "widget") -> Part:
-    """Build the widget as a single-material `Part`.
+    """Build the block as a single-material `Part`.
 
     Validates FIRST and raises on failure. A CEM that emits geometry from
     invalid parameters produces a plausible-looking part that violates its own

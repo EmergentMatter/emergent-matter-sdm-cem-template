@@ -1,4 +1,4 @@
-"""`python -m widget_sdf.sdm.cli --out part.sdm --set d_outer_radius=14`
+"""`python -m widget_sdf.sdm.cli --out part.sdm --set d_edge_radius=4`
 
 Both flags are required by the viewer's `/reemit` contract. `--set` alone
 500s inside a subprocess, and the error surfaces nowhere useful.
@@ -62,12 +62,12 @@ def main(argv: list[str] | None = None) -> int:
 
     # Accept BOTH the field name and the name the param carries in the .sdm.
     #
-    # The document strips the type prefix, so `n_bolt_holes` ships as
-    # `bolt_holes` and `cem.toml` records that under `emits`. A viewer reads
+    # The document strips the type prefix, so `d_length` ships as
+    # `length` and `cem.toml` records that under `emits`. A viewer reads
     # the emitted name and passes THAT back on re-emit, so a CLI that only
     # knows the field name refuses every rebuild a viewer sends:
     #
-    #   error: unknown parameter 'bolt_holes': did you mean 'n_bolt_holes'?
+    #   error: unknown parameter 'length': did you mean 'd_length'?
     #
     # Having --out and --set is necessary but not sufficient. The names have to
     # agree in both directions, and `emits` is the mapping that says so.

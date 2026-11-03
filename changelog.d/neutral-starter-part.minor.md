@@ -1,0 +1,1 @@
+The template's own part is now a rounded block (`d_length`, `d_width`, `d_height`, `d_edge_radius`) instead of a flanged bushing, so a new project opens on a neutral shape. The bushing moved to `examples/bushing_sdf/` with its own annotated `cem.toml` and tests, and `scripts/rename.py` replaces `README.md` with a short project README.
