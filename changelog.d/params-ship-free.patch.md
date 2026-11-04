@@ -1,1 +1,0 @@
-The starter part and the bushing example now emit their declared params with `free=True`, so the viewer's Scene panel shows a control for each; before, every project made from the template opened with an empty Scene. `scripts/check_contract.py` now fails on a param that is not free, and `CLAUDE.md` tells the agent to ship changeable params free and to open the built part.

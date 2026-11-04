@@ -2,6 +2,13 @@
 
 <!-- towncrier release notes start -->
 
+## 1.1.2 (2026-11-04)
+
+### Patch
+
+- The starter part and the bushing example now emit their declared params with `free=True`, so the viewer's Scene panel shows a control for each; before, every project made from the template opened with an empty Scene. `scripts/check_contract.py` now fails on a param that is not free, and `CLAUDE.md` tells the agent to ship changeable params free and to open the built part. (params-ship-free)
+
+
 ## 1.1.1 (2026-11-04)
 
 ### Patch
