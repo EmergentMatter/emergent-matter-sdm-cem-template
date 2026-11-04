@@ -1236,3 +1236,52 @@ def test_the_script_prints_where_to_go_next(tmp_path: Path) -> None:
     for step in ("release control", "parameters.py", "trees_*.py", "cem.toml", "test_build.py"):
         assert step in result.stdout
     assert (dst / "docs" / "building-a-cem.md").is_file()
+
+
+# ── the guidance the coding agent reads ───────────────────────────────────
+
+
+def _agent_rules_missing(text: str, package: str, script: str) -> list[str]:
+    """The rules `CLAUDE.md` must carry for an agent that has no `uv` and no
+    network, with the renamed names filled in. Returns the ones it lacks."""
+    flat = " ".join(text.split())
+    rules = {
+        "own package": f"`src/{package}/`",
+        "no second package": "Never create a second package under `src/`",
+        "build into output": f"uv run {script} --out output/part.sdm",
+        "direct fallback": f"PYTHONPATH=src python -m {package}.sdm.cli --out output/part.sdm",
+        "no uv, deps installed": (
+            "If `uv` is not on the machine, the dependencies are already installed"
+        ),
+        "no installing": "Never try to install anything or fetch `uv`",
+        "no hand-written sdm": "Never write a `.sdm` by hand or from a script of your own",
+        "report failures": "stop and report the failure with its output",
+        "no git commands": "do not run `git add`, `git commit` or `git config`",
+    }
+    return [name for name, phrase in rules.items() if phrase not in flat]
+
+
+def test_a_renamed_claude_md_carries_the_agent_rules_with_the_new_names(
+    renamed_base: Path,
+) -> None:
+    text = (renamed_base / "CLAUDE.md").read_text()
+
+    assert _agent_rules_missing(text, NEW_PACKAGE, f"{THING}-build") == []
+    assert "widget" not in text.lower()
+
+
+def test_the_agent_rules_check_can_fail(renamed_base: Path) -> None:
+    text = (renamed_base / "CLAUDE.md").read_text()
+
+    assert _agent_rules_missing(text, "other_sdf", "other-build") != []
+    without = text.replace("`git add`, `git commit` or `git config`", "git")
+    assert _agent_rules_missing(without, NEW_PACKAGE, f"{THING}-build") == ["no git commands"]
+    # The template's own text names the template's package, not the renamed one.
+    stale = (ROOT / "CLAUDE.md").read_text()
+    assert "own package" in _agent_rules_missing(stale, NEW_PACKAGE, f"{THING}-build")
+
+
+def test_the_template_claude_md_carries_the_same_rules_under_the_template_names() -> None:
+    text = (ROOT / "CLAUDE.md").read_text()
+
+    assert _agent_rules_missing(text, OLD_PACKAGE, "widget-build") == []
