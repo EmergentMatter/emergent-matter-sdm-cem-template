@@ -1,1 +1,0 @@
-`CLAUDE.md` now tells the coding agent how to work where there is no `uv` and no network: run the package CLI and `pytest` directly and install nothing; build only in this project's own package, never a second one; never write a `.sdm` by hand; report a failed build with its output; and leave `git add`, `git commit` and `git config` to the environment when it saves the work.

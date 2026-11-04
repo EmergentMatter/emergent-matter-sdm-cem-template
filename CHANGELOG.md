@@ -2,6 +2,13 @@
 
 <!-- towncrier release notes start -->
 
+## 1.1.1 (2026-11-04)
+
+### Patch
+
+- `CLAUDE.md` now tells the coding agent how to work where there is no `uv` and no network: run the package CLI and `pytest` directly and install nothing; build only in this project's own package, never a second one; never write a `.sdm` by hand; report a failed build with its output; and leave `git add`, `git commit` and `git config` to the environment when it saves the work. (agent-guidance-hosted)
+
+
 ## 1.1.0 (2026-11-03)
 
 ### Minor
