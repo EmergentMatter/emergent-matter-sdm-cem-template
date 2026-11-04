@@ -94,7 +94,7 @@ wheels = [
 
 [[package]]
 name = "emergent-matter-sdm-cem-template"
-version = "1.1.0"
+version = "1.1.1"
 source = { editable = "." }
 dependencies = [
     { name = "emergent-matter-sdm-core" },
