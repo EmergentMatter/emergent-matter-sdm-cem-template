@@ -217,13 +217,13 @@ If anything goes wrong, `python3 scripts/doctor.py` prints the fix.
 ## Build
 
 ```bash
-uv run {script} --out part.sdm --set <name>=<value>
+uv run {script} --out output/part.sdm --set <name>=<value>
 ```
 
 `<name>` is a parameter declared in `cem.toml`. In an environment without
 `uv`, such as a prebuilt image with the dependencies already installed, run
 the same CLI with
-`PYTHONPATH=src python -m {package}.sdm.cli --out part.sdm --set <name>=<value>`.
+`PYTHONPATH=src python -m {package}.sdm.cli --out output/part.sdm --set <name>=<value>`.
 
 ## Tests
 

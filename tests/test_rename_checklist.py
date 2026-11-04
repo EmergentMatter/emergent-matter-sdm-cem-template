@@ -423,7 +423,7 @@ def test_the_readme_is_replaced_by_the_projects_own(tmp_path: Path) -> None:
     readme = (dst / "README.md").read_text()
     assert readme.startswith("# gear_box\n")
     assert "Made from the Emergent Matter CEM template." in readme
-    assert "PYTHONPATH=src python -m gear_box_sdf.sdm.cli --out part.sdm" in readme
+    assert "PYTHONPATH=src python -m gear_box_sdf.sdm.cli --out output/part.sdm" in readme
     assert "uv run gear_box-build" in readme
     assert "uv run pytest" in readme and "python -m pytest" in readme
     assert "## Tests" in readme, "ci.yml points at the README's Tests section"
@@ -1246,7 +1246,9 @@ def _agent_rules_missing(text: str, package: str, script: str) -> list[str]:
     network, with the renamed names filled in. Returns the ones it lacks."""
     flat = " ".join(text.split())
     rules = {
-        "own package": f"`src/{package}/`",
+        "own package": (
+            f"this project's own package, the only directory under `src/`: `src/{package}/`"
+        ),
         "no second package": "Never create a second package under `src/`",
         "build into output": f"uv run {script} --out output/part.sdm",
         "direct fallback": f"PYTHONPATH=src python -m {package}.sdm.cli --out output/part.sdm",
@@ -1256,7 +1258,12 @@ def _agent_rules_missing(text: str, package: str, script: str) -> list[str]:
         "no installing": "Never try to install anything or fetch `uv`",
         "no hand-written sdm": "Never write a `.sdm` by hand or from a script of your own",
         "report failures": "stop and report the failure with its output",
-        "no git commands": "do not run `git add`, `git commit` or `git config`",
+        "no git commands": (
+            "Where there is no `uv`, the work is saved for you each turn: do not run "
+            "`git add`, `git commit` or `git config`"
+        ),
+        "commit when asked locally": "On a local machine, commit only when asked",
+        "no sidecar or viewer": "`sdm-sidecar` and the viewer are never needed to build or test",
     }
     return [name for name, phrase in rules.items() if phrase not in flat]
 
@@ -1285,3 +1292,33 @@ def test_the_template_claude_md_carries_the_same_rules_under_the_template_names(
     text = (ROOT / "CLAUDE.md").read_text()
 
     assert _agent_rules_missing(text, OLD_PACKAGE, "widget-build") == []
+
+
+def _bare_pytest_lines(text: str) -> list[int]:
+    """Offsets of each `uv run pytest` with no `python -m pytest` within a
+    few lines of it: the fallback has to sit beside the uv form."""
+    return [
+        m.start()
+        for m in re.finditer(r"uv run pytest", text)
+        if "python -m pytest" not in text[max(0, m.start() - 300) : m.end() + 300]
+    ]
+
+
+def test_every_uv_run_pytest_has_the_fallback_beside_it(renamed_base: Path) -> None:
+    seen = 0
+    for name in ("CLAUDE.md", "README.md"):
+        text = (renamed_base / name).read_text()
+        seen += len(re.findall(r"uv run pytest", text))
+        assert _bare_pytest_lines(text) == [], name
+    assert seen >= 3
+
+
+def test_the_pytest_fallback_check_can_fail() -> None:
+    assert _bare_pytest_lines("```bash\nuv run pytest\n```\n" + "x" * 400) != []
+    assert _bare_pytest_lines("uv run pytest, or python -m pytest without uv") == []
+
+
+def test_the_notes_that_assume_uv_say_they_are_for_a_local_machine(renamed_base: Path) -> None:
+    for name in ("docs/traps.md", "docs/building-a-cem.md"):
+        text = " ".join((renamed_base / name).read_text().split())
+        assert "do not install" in text and "python -m" in text, name
