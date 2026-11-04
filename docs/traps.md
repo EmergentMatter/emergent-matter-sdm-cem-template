@@ -125,7 +125,9 @@ path or an absolute `cwd`.
 starts with `uv`, so a sidecar or viewer launched without `~/.local/bin` on its
 PATH (from a desktop launcher, a service, `env -i`) refuses every re-emit with
 `authoring command not found: uv`. Start it from a shell where `uv --version`
-works.
+works. This is about a local machine. Where there is no `uv` and the
+dependencies are already installed, do not install it: run the package CLI
+with `python -m`, as `CLAUDE.md` says.
 
 **Declare the flags the CLI takes.** A tool driving your CEM cannot tell from
 the recorded argv whether it accepts `--out` and `--set`. Undeclared, the

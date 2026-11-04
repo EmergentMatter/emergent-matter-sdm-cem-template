@@ -43,8 +43,8 @@ Every part in this repo is built through the CEM.
   `WidgetParameters` in `src/widget_sdf/parameters.py` and a matching
   `[cem.params.<name>]` entry in `cem.toml`. A number that appears only inside
   a tree builder is not adjustable, and the viewer shows no parameters for it.
-- The part lives in this project's own package, `src/widget_sdf/`: the one
-  `scripts/rename.py` named. Edit the parameters and the tree builders under
+- The part lives in this project's own package, the only directory under
+  `src/`: `src/widget_sdf/`. Edit the parameters and the tree builders under
   `src/widget_sdf/sdm/`. Never create a second package under `src/`, and never
   write a build script beside them: the build command and Regenerate both use
   this package.
@@ -55,6 +55,11 @@ Every part in this repo is built through the CEM.
   `PYTHONPATH=src python -m widget_sdf.sdm.cli --out output/part.sdm --set <name>=<value>`
   (drop the `PYTHONPATH=src` prefix where the environment already sets it).
   Never try to install anything or fetch `uv`: no `pip install`, no downloads.
+- Where there is no `uv`, the work is saved for you each turn: do not run
+  `git add`, `git commit` or `git config`. On a local machine, commit only when
+  asked.
+- `sdm-sidecar` and the viewer are never needed to build or test: the package
+  CLI and pytest are the whole loop.
 - Never write a `.sdm` by hand or from a script of your own, and never build
   geometry in a standalone script or notebook with fixed values. Only the
   package's CLI makes a `.sdm`. If a build fails, stop and report the failure
@@ -62,8 +67,6 @@ Every part in this repo is built through the CEM.
 - Run `uv run pytest` after a change (`python -m pytest` where there is no
   `uv`). A new parameter follows the checklist under "Adding a parameter"
   below.
-- When the environment saves the work for you at the end of a turn, do not run
-  `git add`, `git commit` or `git config`.
 
 ## What a CEM is, and what it is not
 
@@ -152,6 +155,8 @@ inferring one from the prefix.
 ```bash
 uv run pytest
 ```
+
+Without `uv`: `python -m pytest`.
 
 No visible windows, no GPU, no network. A CEM's tests should run in under a
 second plus the JAX import.

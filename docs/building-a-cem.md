@@ -78,6 +78,9 @@ and `check_contract.py` fails without it.
 `harness.py` stamps `metadata.generator` with the command that produced the
 file, as `uv run --frozen <script> ...` with a `cwd` relative to the `.sdm`, so
 the file re-emits on any machine. Without it the `.sdm` can be rendered and never re-derived.
+This describes a local machine, where `uv` is how the CEM runs. Where there is
+no `uv` and the dependencies are already installed, run the package CLI with
+`python -m`, as `CLAUDE.md` says; do not install `uv`.
 
 **Read [`docs/traps.md`](docs/traps.md) before writing geometry.** It is the
 list of mistakes this stack lets you make that produce a document that
