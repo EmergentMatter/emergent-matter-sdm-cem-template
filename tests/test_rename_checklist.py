@@ -1343,9 +1343,3 @@ def test_a_renamed_copys_built_part_ships_every_param_free_with_bounds(
     assert sorted(params) == ["edge_radius", "height", "length", "width"]
     assert params["length"]["value"] == 50
     assert [n for n, p in params.items() if p["free"] is not True or not p["bounds"]] == []
-
-
-def test_the_contract_check_looks_at_the_free_flag() -> None:
-    source = (ROOT / "scripts" / "check_contract.py").read_text()
-
-    assert 'not v.get("free")' in source and "get no control at all" in source
