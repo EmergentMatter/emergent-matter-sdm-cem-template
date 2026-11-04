@@ -137,6 +137,9 @@ MATERIAL_NAME = "nylon12_sls"
 #: severs a derived value from its inputs (the hexafoil bug:
 #: schema 0.2 cannot express a param expression, so a derived param written as
 #: a free one desyncs the moment a slider moves).
+#:
+#: Every declared param ships `free=True`: the viewer builds its Scene controls
+#: from free params only, so one shipped `free=False` has no control at all.
 #: field -> unit, and the units must come from sdm-core's schema enum
 #: ("mm", "count", "rad", "deg", "ratio", "N", "MPa", ...). An empty string is
 #: REFUSED by the schema, which is easy to hit and reads as an unrelated
@@ -169,7 +172,7 @@ def _params_block(p: BushingParameters) -> dict:
         f.split("_", 1)[1]: Param(
             name=f.split("_", 1)[1],
             value=float(getattr(p, f)),
-            free=False,
+            free=True,
             bounds=bounds,
             unit=unit,
         )

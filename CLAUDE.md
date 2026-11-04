@@ -60,6 +60,13 @@ Every part in this repo is built through the CEM.
   asked.
 - `sdm-sidecar` and the viewer are never needed to build or test: the package
   CLI and pytest are the whole loop.
+- Every parameter a person may change ships in the `.sdm` with `free=True`
+  (see `PARAM_FIELDS` in `src/widget_sdf/sdm/assembly.py`), or the Scene panel
+  shows nothing for it. Only a param `cem.toml` gives the role `tool` or
+  `derived`, or no role, may ship fixed.
+- After a build, open the part with the `open_part` MCP tool where that tool is
+  available, so the person sees it; otherwise tell them its path,
+  `output/part.sdm`, and to open that file.
 - Never write a `.sdm` by hand or from a script of your own, and never build
   geometry in a standalone script or notebook with fixed values. Only the
   package's CLI makes a `.sdm`. If a build fails, stop and report the failure

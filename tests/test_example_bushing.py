@@ -37,8 +37,9 @@ def field(part):
     """The compiled field. Module-scoped: the first call pays a JAX trace.
 
     `make_sdf_closure(tree, part)` returns `fn(points, free_vec)`; the second
-    argument is the free-param vector, and None is correct while every param
-    is `free=False`.
+    argument is the free-param vector. None is accepted here because the trees
+    embed their numbers and read no free param; a re-emit through the CLI is
+    what changes the geometry.
     """
     import jax.numpy as jnp
     from software_defined_matter.sdf.compile import make_sdf_closure
@@ -218,6 +219,12 @@ def test_the_annotated_manifest_agrees_with_the_code(check: str) -> None:
     checks goes stale. It gets the template's checks with the stricter floors
     that keep their loops from passing on nothing."""
     CHECKS[check](CASE)
+
+
+def test_every_param_ships_free_with_a_range(part) -> None:
+    assert part.params
+    for name, param in part.params.items():
+        assert param.free and param.bounds is not None, name
 
 
 def test_the_manifest_names_the_part_it_builds() -> None:

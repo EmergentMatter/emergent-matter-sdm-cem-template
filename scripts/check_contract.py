@@ -102,6 +102,25 @@ def entry_script() -> str:
 SCRIPT = entry_script()
 
 
+#: Roles that configure the toolchain or feed a check rather than the design,
+#: so such a param may ship fixed.
+_NOT_DESIGN_ROLES = ("tool", "derived")
+
+
+def design_params_not_free(doc_params: dict, manifest_params: dict) -> list[str]:
+    """Emitted params that `cem.toml` declares as design surface (it gives them
+    a role other than `tool` or `derived`) and that ship non-free. The viewer
+    builds its Scene controls from free params only, so these get none. A param
+    with no role, or a `tool` or `derived` one, may be fixed on purpose."""
+    declared = {(spec.get("emits") or name): spec for name, spec in manifest_params.items()}
+    return [
+        name
+        for name, v in doc_params.items()
+        if not v.get("free")
+        and declared.get(name, {}).get("role") not in (None, *_NOT_DESIGN_ROLES)
+    ]
+
+
 def main(argv: list[str] | None = None) -> int:
     if not shutil.which("uv"):
         print("error: uv is not installed; run scripts/doctor.py", file=sys.stderr)
@@ -151,6 +170,15 @@ def _checks(tmp: Path) -> int:
         if not unbounded
         else f"{len(unbounded)} unbounded, e.g. {unbounded[:3]} -- these render as "
         "controls nothing can move",
+    )
+
+    not_free = design_params_not_free(doc["params"], params)
+    check(
+        not not_free,
+        "every design param is free (the Scene lists free params only)",
+        ""
+        if not not_free
+        else f"{len(not_free)} not free, e.g. {not_free[:3]} -- these get no control at all",
     )
 
     wide = [
