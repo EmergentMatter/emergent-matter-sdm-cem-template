@@ -40,8 +40,9 @@ def field(part):
     """The compiled field. Module-scoped: the first call pays a JAX trace.
 
     `make_sdf_closure(tree, part)` returns `fn(points, free_vec)`; the second
-    argument is the free-param vector, and None is correct while every param
-    is `free=False`.
+    argument is the free-param vector. None is accepted here because the trees
+    embed their numbers and read no free param; a re-emit through the CLI is
+    what changes the geometry.
     """
     import jax.numpy as jnp
     from software_defined_matter.sdf.compile import make_sdf_closure
@@ -69,11 +70,42 @@ def test_it_validates_against_the_schema(part, tmp_path) -> None:
     assert load(p, b_validate_schema=True) is not None
 
 
-def test_it_ships_every_design_param_with_a_range(part) -> None:
-    """The Scene pane builds a slider from each emitted param's bounds."""
+def _params_without_a_control(params) -> list[str]:
+    """Params the Scene pane would show no slider for: it builds one from each
+    FREE param's bounds, and drops the rest."""
+    return sorted(
+        name
+        for name, p in params.items()
+        if not p.free or p.bounds is None or not p.bounds[0] < p.bounds[1]
+    )
+
+
+def test_it_ships_every_design_param_free_with_a_range(part) -> None:
     assert sorted(part.params) == ["edge_radius", "height", "length", "width"]
-    for param in part.params.values():
-        assert param.bounds is not None and param.bounds[0] < param.bounds[1]
+    assert _params_without_a_control(part.params) == []
+
+
+def test_a_param_shipped_not_free_is_reported() -> None:
+    from software_defined_matter import Param
+
+    params = {
+        "a": Param(name="a", value=1.0, free=True, bounds=(0.0, 2.0)),
+        "b": Param(name="b", value=1.0, free=False, bounds=(0.0, 2.0)),
+        "c": Param(name="c", value=1.0, free=True),
+    }
+    assert _params_without_a_control(params) == ["b", "c"]
+
+
+def test_a_rebuild_with_set_keeps_every_param_free(tmp_path) -> None:
+    import json
+
+    from widget_sdf.sdm.cli import main
+
+    out = tmp_path / "p.sdm"
+    assert main(["--out", str(out), "--set", "length=50"]) == 0
+    params = json.loads(out.read_text())["params"]
+    assert params["length"]["value"] == 50
+    assert [n for n, p in params.items() if not p["free"] or not p["bounds"]] == []
 
 
 def test_invalid_parameters_do_not_produce_geometry() -> None:

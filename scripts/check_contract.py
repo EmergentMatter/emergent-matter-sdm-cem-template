@@ -153,6 +153,15 @@ def _checks(tmp: Path) -> int:
         "controls nothing can move",
     )
 
+    not_free = [k for k, v in doc["params"].items() if not v.get("free")]
+    check(
+        not not_free,
+        "every param is free (the Scene lists free params only)",
+        ""
+        if not not_free
+        else f"{len(not_free)} not free, e.g. {not_free[:3]} -- these get no control at all",
+    )
+
     wide = [
         k
         for k, v in doc["params"].items()

@@ -107,8 +107,8 @@ uv run python scripts/check_contract.py
 ```
 
 **A green test suite is not a working CEM.** It means your CEM is internally
-consistent. It does not mean a tool can drive it: bounds can be missing, the
-CLI can reject the very name the document emits, an integer can arrive as
+consistent. It does not mean a tool can drive it: bounds can be missing, a
+param can ship without `free=True` (the Scene is empty), the CLI can reject the very name the document emits, an integer can arrive as
 `8.0`, errors can go to the wrong stream, and the recorded generator can fail
 to reproduce its own document. Every one of those is invisible from inside the
 CEM and shows up as a broken or unmovable control in a viewer.

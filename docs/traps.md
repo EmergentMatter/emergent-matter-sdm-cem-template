@@ -75,6 +75,11 @@ passes every test a CEM can run on its own.
 **`--out` and `--set` are necessary, not sufficient.** With both present and
 working, the viewer still failed every parameter change with a 500.
 
+**A declared param must ship `free=True`.** The viewer builds its Scene
+controls from free params only, so a param emitted with `free=False` has no
+control, and the Scene is empty while the build, the schema and every test
+pass. Derived values are the opposite case: they never ship at all.
+
 **Accept the name the `.sdm` EMITS, not just the field name.** The document
 strips the type prefix, so `d_length` ships as `length`, and
 `cem.toml` records that under `emits`. The viewer reads the emitted name and

@@ -1322,3 +1322,30 @@ def test_the_notes_that_assume_uv_say_they_are_for_a_local_machine(renamed_base:
     for name in ("docs/traps.md", "docs/building-a-cem.md"):
         text = " ".join((renamed_base / name).read_text().split())
         assert "do not install" in text and "python -m" in text, name
+
+
+def test_a_renamed_copys_built_part_ships_every_param_free_with_bounds(
+    renamed_base: Path,
+) -> None:
+    """The Scene pane builds its controls from free params only; read the
+    `.sdm` the renamed package's CLI writes, the way the viewer does."""
+    out = renamed_base / "output" / "free.sdm"
+    result = subprocess.run(
+        [sys.executable, "-m", f"{NEW_PACKAGE}.sdm.cli", "--out", str(out), "--set", "length=50"],
+        cwd=renamed_base,
+        capture_output=True,
+        text=True,
+        env={"PATH": "/nonexistent", "PYTHONPATH": str(renamed_base / "src")},
+    )
+    assert result.returncode == 0, result.stderr
+
+    params = json.loads(out.read_text())["params"]
+    assert sorted(params) == ["edge_radius", "height", "length", "width"]
+    assert params["length"]["value"] == 50
+    assert [n for n, p in params.items() if p["free"] is not True or not p["bounds"]] == []
+
+
+def test_the_contract_check_looks_at_the_free_flag() -> None:
+    source = (ROOT / "scripts" / "check_contract.py").read_text()
+
+    assert 'not v.get("free")' in source and "get no control at all" in source

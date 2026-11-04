@@ -33,7 +33,9 @@ where derived params were flattened into free params at authoring time and
 the viewer faithfully rendered the inconsistent state.
 
 Corollary, enforced by `test_derived_values_are_not_declared_as_params`: a
-derived value must not ship in the `.sdm` as a free param either.
+derived value must not ship in the `.sdm` as a free param either. Declared
+params are the other half: they ship with `free=True` and bounds, or the Scene
+has no control for them.
 
 ### `validate()` returns a list. It does not raise.
 
