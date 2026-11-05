@@ -1,21 +1,16 @@
-# cem.toml: the widget template's declared surface.
+# cem.toml: this CEM's declared surface.
 #
-# This file is the point of the template. It is what a tool reads when handed
-# this repo, and it is read WITHOUT importing anything: the MCP server's `read_cem`
-# parses it and never resolves `entry_point`. Keep it that way: the moment
-# reading a manifest runs code, "list the CEMs I have" becomes a supply-chain
-# question.
+# A tool reads this file WITHOUT importing anything: `sdm-sidecar cem show`
+# parses it and never resolves `entry_point`. Keep it that way.
 #
-# `role` says what a change COSTS:
-#   live:     bound a shader uniform; changing it is a uniform write
-#   re-emit:  baked into the shader; a change means re-emitting (sub-second)
-#   topology: changes how many nodes the tree has; authoring script only
-#   derived:  a floor or limit feeding validate(), not geometry
-#   tool:     configures the toolchain, not the design
+# `role` says what a change COSTS: live (a uniform write), re-emit (baked into
+# the shader; sub-second), topology (changes the node count), derived (a floor
+# feeding validate()), tool (configures the toolchain, not the design).
+# `emits` is the name the param carries in the emitted .sdm: the type prefix
+# stripped, so d_length ships as length.
 #
-# `emits` is the name the param carries in the emitted .sdm. This CEM strips
-# the type prefix, so d_outer_radius ships as outer_radius; recording it is
-# what lets a consumer join a CEM to its own output without guessing.
+# Derived values (d_half_min_side) are NOT declared here. They are @property on
+# the dataclass: a manifest declares surface, not a second copy of the model.
 #
 # `source` says where the number comes from, and every param has one (Rob,
 # 2026-10-30: parametric modelling is critical; nothing is positioned or sized
@@ -29,98 +24,57 @@
 # Every other number in the part is computed from these (@property), and
 # tests/test_parametric.py fails on a number typed into the shape code.
 #
-# Derived values (d_bore_radius, d_bolt_angular_pitch, d_flange_ligament) are
-# NOT declared here. They are @property on the dataclass and they stay there:
-# a manifest declares surface, not a second copy of the model.
+# The annotated version, with every role, `emits`, bounds and constraint
+# explained, is examples/bushing_sdf/cem.toml.
 
 [cem]
 name = "widget"
 version = "0.1.0"
 authors = ["Emergent Matter"]
-description = "A flanged bushing. Template CEM. Copy it and replace the shape."
+description = "A rounded block. Template CEM. Copy it and replace the shape."
 sdm_core = ">=0.1"
 spec_version = 1
 entry_point = "widget_sdf.sdm.assembly:build_widget_part"
 
-[cem.params.n_bolt_holes]
-type = "int"
-default = 6
-unit = "count"
-role = "topology"
-bounds = [0, 24]
-emits = "bolt_holes"
-doc = "Number of holes in the flange bolt circle. 0 removes the bolt circle."
-source = "choice: six bolts spread the clamp load around the flange and still leave a ligament above flange_ligament_floor"
-
-[cem.params.d_outer_radius]
-type = "float"
-default = 12.0
-unit = "mm"
-role = "live"
-bounds = [4.0, 60.0]
-emits = "outer_radius"
-doc = "Outer radius of the tube."
-source = "requirement:WIDGET-F1.1 (example ID: the tube OD the mating housing bore takes)"
-
-[cem.params.d_wall_thickness]
-type = "float"
-default = 3.0
-unit = "mm"
-role = "live"
-bounds = [0.8, 20.0]
-emits = "wall_thickness"
-doc = "Tube wall thickness. The bore follows from this."
-source = "choice: example value; a real CEM sizes the wall from its load requirement and never below its process's minimum wall"
-
 [cem.params.d_length]
+type = "float"
+default = 40.0
+unit = "mm"
+role = "re-emit"
+bounds = [5.0, 200.0]
+emits = "length"
+doc = "Extent along x."
+source = "requirement:F1.1 (example ID: the length the mating pocket takes)"
+
+[cem.params.d_width]
 type = "float"
 default = 30.0
 unit = "mm"
 role = "re-emit"
 bounds = [5.0, 200.0]
-emits = "length"
-doc = "Overall axial length, flange included."
-source = "requirement:WIDGET-F1.2 (example ID: the length of the housing it passes through)"
+emits = "width"
+doc = "Extent along y."
+source = "requirement:F1.2 (example ID: the width the mating pocket takes)"
 
-[cem.params.d_flange_radius]
+[cem.params.d_height]
 type = "float"
 default = 20.0
 unit = "mm"
-role = "live"
-bounds = [5.0, 100.0]
-emits = "flange_radius"
-doc = "Flange outer radius."
-source = "choice: wide enough to carry the bolt circle with a ligament on both sides of each hole"
+role = "re-emit"
+bounds = [5.0, 200.0]
+emits = "height"
+doc = "Extent along z. The block stands on z = 0."
+source = "requirement:F1.3 (example ID: the height under the cover it fits beneath)"
 
-[cem.params.d_flange_thickness]
+[cem.params.d_edge_radius]
 type = "float"
-default = 4.0
+default = 3.0
 unit = "mm"
 role = "re-emit"
-bounds = [1.0, 30.0]
-emits = "flange_thickness"
-doc = "Flange axial thickness."
-source = "choice: example value; a real CEM sizes it from the clamp load the bolts put through the flange"
-
-[cem.params.d_bolt_hole_radius]
-type = "float"
-default = 1.7
-unit = "mm"
-role = "re-emit"
-bounds = [0.5, 10.0]
-emits = "bolt_hole_radius"
-doc = "Radius of each bolt hole. 1.7 is M3 clearance."
-source = "standard:ISO 273 medium clearance for M3 (3.4 mm diameter)"
-
-[cem.params.d_bolt_circle_radius]
-type = "float"
-default = 16.0
-unit = "mm"
-role = "re-emit"
-bounds = [3.0, 90.0]
-emits = "bolt_circle_radius"
-doc = "Radius of the circle the bolt holes sit on."
-source = "choice: midway between the tube and the flange edge, so the ligament is equal inside and out"
+bounds = [0.0, 20.0]
+emits = "edge_radius"
+doc = "Radius of the twelve rounded edges. 0 gives sharp edges."
+source = "choice: example value; rounds the edges so nothing sharp is handled, well under half the smallest side"
 
 [cem.params.d_voxel_size_mm]
 type = "float"
@@ -129,39 +83,17 @@ unit = "mm"
 role = "tool"
 bounds = [0.02, 2.0]
 doc = "Default voxel size for meshing. Not design surface: it configures the toolchain."
-source = "tool: meshing resolution, not geometry"
+source = "tool: meshing resolution for exports; does not change the design"
 
 # ── Constraints: the rules no per-param bound can express ──────────────────
 #
-# Each one is ALSO enforced in WidgetParameters.validate(), and a test asserts
-# that every name here appears there. The manifest is what a tool reads; the
-# Python is what runs. Without that test they drift, and the manifest becomes
-# a description of a design nobody is building.
+# Each constraint is ALSO enforced in WidgetParameters.validate(), and a test
+# asserts that every name here appears there.
 
 [[cem.constraints]]
-name = "wall_thickness_below_outer_radius"
-expr = "d_wall_thickness < d_outer_radius"
-why = "otherwise there is no bore: a pairwise inequality, which per-param bounds cannot express"
-
-[[cem.constraints]]
-name = "flange_exceeds_tube"
-expr = "d_flange_radius > d_outer_radius"
-why = "a flange no wider than the tube is not a flange"
-
-[[cem.constraints]]
-name = "bolt_circle_within_flange"
-expr = "d_outer_radius < d_bolt_circle_radius < d_flange_radius"
-why = "holes must land in flange material; a three-way ordering"
-
-[[cem.constraints]]
-name = "flange_ligament_floor"
-expr = "d_flange_ligament >= 2.0"
-why = "checked against a DERIVED value that depends on n_bolt_holes, so it cannot be a bound on any declared param. Below the floor the flange is a perforation."
-
-[[cem.constraints]]
-name = "flange_within_length"
-expr = "d_flange_thickness < d_length"
-why = "the flange is part of the overall length, not additional to it"
+name = "edge_radius_below_half_smallest_side"
+expr = "d_edge_radius < d_half_min_side"
+why = "the radius is carved out of the half-extents, so a larger one has no block left; checked against a DERIVED value, so it cannot be a bound on any declared param"
 
 [[cem.objectives]]
 name = "minimize_mass"

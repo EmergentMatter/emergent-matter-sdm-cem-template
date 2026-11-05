@@ -15,10 +15,13 @@ pipeline this repo is the first step of, are in the docs hub:
 [glossary](https://github.com/EmergentMatter/emergent-matter-sdm/blob/main/docs/glossary.md),
 [concepts](https://github.com/EmergentMatter/emergent-matter-sdm/blob/main/docs/concepts.md).
 
-The part is a flanged bushing. It is deliberately boring: what this repo
+The part is a rounded block. It is deliberately boring: what this repo
 teaches is the **shape of a CEM**, not the shape of a part. It builds, it
 validates, and its tests pass, so you can tell whether your first change
-broke something.
+broke something. A fuller worked CEM, a flanged bushing with a bolt circle,
+an integer parameter and five constraints, is in
+[`examples/bushing_sdf/`](examples/bushing_sdf/), with an annotated
+`cem.toml` of its own.
 
 ## Install
 
@@ -68,10 +71,16 @@ Then, in this order:
 
 1. **Rename the template to your CEM: `python3 scripts/rename.py <thing>`.**
    Renames `src/widget_sdf/` and the console script `widget-build`, fixes
-   every import and manifest reference that names either, renames the repo
-   slug everywhere `pyproject.toml` and `ci.yml` carry it, renames the root
-   package in `uv.lock` so `uv sync --locked` still passes, and resets the
-   release history (step 2, below). `<thing>` becomes a Python package
+   every import and manifest reference that names either, renames the
+   parameters class and the part builder, sets `cem.toml`'s `[cem].name` and
+   the CLI's default `--name` to `<thing>`, renames the repo slug everywhere
+   `pyproject.toml` and `ci.yml` carry it, renames the root package in
+   `uv.lock` so `uv sync --locked` still passes, resets the release history
+   (step 2, below), and **replaces this README** with a short one for your
+   CEM (the steps and rules that were here are in
+   [`docs/building-a-cem.md`](docs/building-a-cem.md), which stays). If
+   `<thing>_sdf` is the name of an example under `examples/`, that example
+   and its test file are removed. `<thing>` becomes a Python package
    name, so it has to be lowercase snake_case. The new repo slug is
    `<company-name>-cem-<thing>`, where `<company-name>` defaults to
    `emergent-matter`; forking this template outside Emergent Matter,
@@ -84,90 +93,11 @@ Then, in this order:
 2. **Release history is already reset.** The script above set
    `[project].version` back to `0.1.0` and emptied `changelog.d/`: the
    template's own notes describe changes to the template, not to your CEM.
-3. **Wire up release control for your CEM.** `.github/workflows/version.yml`
-   needs no repo secret: `emergent-matter-sdm-core` resolves from the org's
-   package index, not a private-sibling checkout. Adjust
-   `.github/CODEOWNERS` if this CEM has different owners than the
-   template's default.
-4. **Rewrite `parameters.py`.** This is the design. Declared fields, derived
-   `@property`, and `validate()`: see the rules below.
-5. **Rewrite `sdm/trees_*.py`.** One function per feature.
-6. **Update `cem.toml`** to match. `tests/test_manifest.py` fails until it does,
-   in both directions.
-7. **Rewrite `tests/test_build.py`'s field assertions** for your geometry. Keep
-   the *style*: points whose answers you know by hand.
-
-## The rules this template encodes
-
-### Derived values are `@property`. Never a field.
-
-`d_bore_radius` is `d_outer_radius - d_wall_thickness`. Write it down as a
-field and it becomes a second source of truth that nothing keeps in sync:
-which is exactly how a param edit produces geometry that violates the model
-with nothing reporting a problem. This is not hypothetical: it is
-the hexafoil bug,
-where derived params were flattened into free params at authoring time and
-the viewer faithfully rendered the inconsistent state.
-
-Corollary, enforced by `test_derived_values_are_not_declared_as_params`: a
-derived value must not ship in the `.sdm` as a free param either.
-
-### Every number has a source
-
-Nothing is positioned or sized by a number that is not traceable to a
-requirement, a bought part, a standard, a process limit or a reasoned design
-choice. Every parameter in `cem.toml` names its `source`; every other number
-is computed from parameters. `tests/test_parametric.py` fails on a parameter
-with no source, on a number typed into the shape code, and on a length offset
-by a typed-in number. See CLAUDE.md, "Every number has a source", for the full
-rules.
-
-### `validate()` returns a list. It does not raise.
-
-An optimizer or a coder agent should see every problem at once, not fix five
-things in five round trips. `build_*_part()` is what raises.
-
-### The interesting constraints are not bounds
-
-Per-param bounds cannot express `d_wall_thickness < d_outer_radius`, an
-ordering like `tube < bolt_circle < flange`, or a floor on a *derived* value
-like `d_flange_ligament` (which depends on `n_bolt_holes`). Those go in
-`validate()` **and** in `cem.toml`'s `[[cem.constraints]]`, each with a `why`:
-a constraint whose reason lives only in someone's head gets relaxed by the
-next person who finds it inconvenient.
-
-`test_every_declared_constraint_is_actually_enforced` is what stops the two
-from drifting.
-
-### `cem.toml` is the machine-readable surface
-
-Every param with its type, default, unit, coupling `role`, bounds, and the
-name it `emits` as in the `.sdm`. It is read **without importing anything**:
-the MCP server's `read_cem` parses it and never resolves `entry_point`. Keep it
-that way: the moment reading a manifest runs code, "list the CEMs I have"
-becomes a supply-chain question.
-
-What each `role` costs to change is documented once, in `cem.toml`'s own
-header comment; this file doesn't repeat it.
-
-### The CLI takes `--out` **and** `--set`, and the document says so
-
-The viewer's `/reemit` contract requires both. A CEM with only `--set` fails
-inside a subprocess, where the error is easy to lose entirely.
-
-The document also **declares** them, as `metadata.generator.accepts`. A tool
-cannot tell from the recorded argv which flags a CLI understands, and without
-the declaration its only option is to write edited values into the `.sdm` and
-hope the generator reads its own output. `harness.py` stamps the declaration
-and `check_contract.py` fails without it.
-
-`harness.py` stamps `metadata.generator` with the command that produced the
-file, as `uv run --frozen <script> ...` with a `cwd` relative to the `.sdm`, so
-the file re-emits on any machine. Without it the `.sdm` can be rendered and never re-derived.
-
-**Read [`docs/traps.md`](docs/traps.md) before writing geometry.** It is the
-list of mistakes this stack lets you make that produce a document that
-builds, validates, and is wrong.
+3. **Everything after the rename** is in
+   [`docs/building-a-cem.md`](docs/building-a-cem.md): wiring up release
+   control, rewriting `parameters.py`, the trees, `cem.toml` and the build
+   test, and the rules a CEM follows. The script prints this list when it
+   finishes.
 
 ## Tests
 
@@ -177,8 +107,8 @@ uv run python scripts/check_contract.py
 ```
 
 **A green test suite is not a working CEM.** It means your CEM is internally
-consistent. It does not mean a tool can drive it: bounds can be missing, the
-CLI can reject the very name the document emits, an integer can arrive as
+consistent. It does not mean a tool can drive it: bounds can be missing, a
+param can ship without `free=True` (the Scene is empty), the CLI can reject the very name the document emits, an integer can arrive as
 `8.0`, errors can go to the wrong stream, and the recorded generator can fail
 to reproduce its own document. Every one of those is invisible from inside the
 CEM and shows up as a broken or unmovable control in a viewer.
@@ -191,11 +121,21 @@ does, and checks all of it without a browser. It reads the entry point from
 it the manifest describes a design nobody is building, and it drifts silently
 because nothing else reads it.
 
+`test_parametric.py` holds the other line: every number has a source. Nothing
+is positioned or sized by a number that is not traceable to a requirement, a
+bought part, a standard, a process limit or a reasoned design choice. Every
+parameter in `cem.toml` names its `source`; every other number is computed
+from parameters. The test fails on a parameter with no source, on a number
+typed into the shape code, and on a length offset by a typed-in number. See
+CLAUDE.md, "Every number has a source", for the full rules.
+
 ## Documentation
 
 | Page | What it covers |
 |---|---|
 | [`docs/traps.md`](docs/traps.md) | The mistakes this stack lets you make that produce a document that builds, validates, and is wrong |
+| [`examples/bushing_sdf/`](examples/bushing_sdf/) | A full worked CEM with an annotated `cem.toml`: roles, `emits`, bounds, constraints |
+| [`examples/plate_sdf/`](examples/plate_sdf/) | A rounded plate, and the rounding trap |
 | [STYLE.md](STYLE.md) / [CONTRIBUTING.md](CONTRIBUTING.md) | House style and how a change ships |
 
 Those pages document this template. For the wider SDM ecosystem and the

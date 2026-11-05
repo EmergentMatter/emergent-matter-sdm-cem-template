@@ -75,18 +75,27 @@ passes every test a CEM can run on its own.
 **`--out` and `--set` are necessary, not sufficient.** With both present and
 working, the viewer still failed every parameter change with a 500.
 
+**A declared param must ship `free=True`.** The viewer builds its Scene
+controls from free params only, so a param emitted with `free=False` has no
+control, and the Scene is empty while the build, the schema and every test
+pass. Derived values are the opposite case: they never ship at all. A param
+may deliberately ship fixed only if `cem.toml` gives it no role, or the role
+`tool` or `derived`; `scripts/check_contract.py` fails any other param that
+ships non-free.
+
 **Accept the name the `.sdm` EMITS, not just the field name.** The document
-strips the type prefix, so `n_bolt_holes` ships as `bolt_holes`, and
+strips the type prefix, so `d_length` ships as `length`, and
 `cem.toml` records that under `emits`. The viewer reads the emitted name and
 hands *that* back on re-emit, so a CLI that only knows the field name refuses
 every rebuild:
 
-    error: unknown parameter 'bolt_holes' -- did you mean 'n_bolt_holes'?
+    error: unknown parameter 'length' -- did you mean 'd_length'?
 
 `emits` is the join key. Both spellings should work.
 
 **An int param arrives as a float.** The `.sdm` stores every value as a JSON
-number, so an integer round-trips as `6.0`. `int("6.0")` raises, and the error
+number, so an integer round-trips as `6.0` (`examples/bushing_sdf/` has an int
+field, `n_bolt_holes`). `int("6.0")` raises, and the error
 complains about a whole number that visibly is one. Parse through `float`
 first, then reject a genuinely non-integral value.
 
@@ -124,7 +133,9 @@ path or an absolute `cwd`.
 starts with `uv`, so a sidecar or viewer launched without `~/.local/bin` on its
 PATH (from a desktop launcher, a service, `env -i`) refuses every re-emit with
 `authoring command not found: uv`. Start it from a shell where `uv --version`
-works.
+works. This is about a local machine. Where there is no `uv` and the
+dependencies are already installed, do not install it: run the package CLI
+with `python -m`, as `CLAUDE.md` says.
 
 **Declare the flags the CLI takes.** A tool driving your CEM cannot tell from
 the recorded argv whether it accepts `--out` and `--set`. Undeclared, the

@@ -23,8 +23,8 @@ That second one earns its keep here more than in most repos. This template is
 copied into every new CEM, so a paragraph that goes stale here goes stale in
 every one of them, and nothing fails when it does.
 
-Read `README.md` first: it is the rules, and this file is the working
-practice on top of them.
+Read [docs/building-a-cem.md](docs/building-a-cem.md) first: it is the rules,
+and this file is the working practice on top of them.
 
 Some files here are delivered by the shared
 [`actions`](https://github.com/EmergentMatter/actions) templates and kept
@@ -34,6 +34,46 @@ current by its sync tooling: `LICENSE`, `NOTICE`, `STYLE.md`,
 one here, not even for a typo: a local change is indistinguishable from
 staleness to a three-way sync, which has to arbitrate the difference. Change
 the template instead.
+
+## Building a part
+
+Every part in this repo is built through the CEM.
+
+- Every dimension a person may want to change is a parameter: a field on
+  `WidgetParameters` in `src/widget_sdf/parameters.py` and a matching
+  `[cem.params.<name>]` entry in `cem.toml`. A number that appears only inside
+  a tree builder is not adjustable, and the viewer shows no parameters for it.
+- The part lives in this project's own package, the only directory under
+  `src/`: `src/widget_sdf/`. Edit the parameters and the tree builders under
+  `src/widget_sdf/sdm/`. Never create a second package under `src/`, and never
+  write a build script beside them: the build command and Regenerate both use
+  this package.
+- Build with the package's CLI, into `output/`:
+  `uv run widget-build --out output/part.sdm --set <name>=<value>`.
+- If `uv` is not on the machine, the dependencies are already installed. Run
+  the same CLI directly:
+  `PYTHONPATH=src python -m widget_sdf.sdm.cli --out output/part.sdm --set <name>=<value>`
+  (drop the `PYTHONPATH=src` prefix where the environment already sets it).
+  Never try to install anything or fetch `uv`: no `pip install`, no downloads.
+- Where there is no `uv`, the work is saved for you each turn: do not run
+  `git add`, `git commit` or `git config`. On a local machine, commit only when
+  asked.
+- `sdm-sidecar` and the viewer are never needed to build or test: the package
+  CLI and pytest are the whole loop.
+- Every parameter a person may change ships in the `.sdm` with `free=True`
+  (see `PARAM_FIELDS` in `src/widget_sdf/sdm/assembly.py`), or the Scene panel
+  shows nothing for it. Only a param `cem.toml` gives the role `tool` or
+  `derived`, or no role, may ship fixed.
+- After a build, open the part with the `open_part` MCP tool where that tool is
+  available, so the person sees it; otherwise tell them its path,
+  `output/part.sdm`, and to open that file.
+- Never write a `.sdm` by hand or from a script of your own, and never build
+  geometry in a standalone script or notebook with fixed values. Only the
+  package's CLI makes a `.sdm`. If a build fails, stop and report the failure
+  with its output.
+- Run `uv run pytest` after a change (`python -m pytest` where there is no
+  `uv`). A new parameter follows the checklist under "Adding a parameter"
+  below.
 
 ## What a CEM is, and what it is not
 
@@ -60,16 +100,17 @@ geometry to an agent.
 Doing 3 before 1 produces geometry with the numbers inline, and then the
 parameters get "extracted" later by reading the tree: at which point the
 derived relationships are already lost, because a tree records `9.0`, not
-`outer_radius - wall_thickness`.
+`min(length, width, height) / 2`.
 
 ## Never store a derived value
 
-`d_bore_radius` is `@property`. So is anything computed from declared fields.
+`d_half_min_side` is `@property`. So is anything computed from declared fields.
 
-README's "Derived values are `@property`. Never a field." section has the
-full story, the hexafoil bug; the rule it forces is: **a wrong CEM does not
-crash, it produces a plausible part**, because nothing errors when a derived
-value quietly disagrees with the inputs it's supposed to track.
+The "Derived values are `@property`. Never a field." section of
+[docs/building-a-cem.md](docs/building-a-cem.md) has the full story, the
+hexafoil bug; the rule it forces is: **a wrong CEM does not crash, it
+produces a plausible part**, because nothing errors when a derived value
+quietly disagrees with the inputs it's supposed to track.
 
 Two tests hold the line, and both matter:
 `test_derived_values_are_not_declared_as_params` (not in `cem.toml`, not in the
@@ -136,6 +177,9 @@ once per module) and it is the only thing that distinguishes "it built" from
 
 ## Adding a parameter: the full checklist
 
+`examples/bushing_sdf/` is a full worked CEM to copy from, with an annotated
+`cem.toml`.
+
 Miss any step and the failure is silent:
 
 1. Field on the dataclass, prefixed by type (`d_` float, `n_` int, `b_` bool,
@@ -168,6 +212,8 @@ inferring one from the prefix.
 ```bash
 uv run pytest
 ```
+
+Without `uv`: `python -m pytest`.
 
 No visible windows, no GPU, no network. A CEM's tests should run in under a
 second plus the JAX import.
