@@ -116,20 +116,40 @@ Two tests hold the line, and both matter:
 `test_derived_values_are_not_declared_as_params` (not in `cem.toml`, not in the
 `.sdm`) and the manifest/dataclass drift checks in `test_manifest.py`.
 
-## Every number has a source. Parametric modelling is the point
+## Every dimension is free, an input, or driven. Nothing dangles
 
-Nothing in the part is positioned or sized by a number that is not traceable.
-Change a requirement, rerun, and every dimension that depends on it must move;
-a number typed into the shape code looks right today and is silently wrong the
-first time an input changes.
+Parametric modelling is the point. Change a requirement, rerun, and every
+dimension that depends on it must move; a number typed into the shape code
+looks right today and is silently wrong the first time an input changes.
 
-- **A number gets its value exactly one way:** typed in as a declared
-  parameter with a `source` in `cem.toml`, computed from parameters
-  (`@property`), or read off a bought part's record. Never a fourth way.
-- **Every parameter names its `source`:** `requirement:<id>`,
+Every dimension gets its value exactly one of three ways:
+
+- **Free:** declared in `cem.toml` with `origin = "free"` and `bounds`. The
+  designer picked it, it is not set by anything outside the part, and an
+  optimizer may move it within its bounds. Early in a design many dimensions
+  are free; that is fine, as long as each one says so.
+- **Input:** declared with `origin = "input"` and set from outside the part: a
+  requirement, a bought part, a standard, a process limit, or a parent
+  assembly. Fixed unless marked `tradeable = true`, so an optimizer cannot
+  "solve" a design by changing what it was asked to meet.
+- **Driven:** computed from other dimensions (`@property`). Never declared.
+
+**Driving is not a label.** A dimension is driving when something else moves
+with it, and any of the three can be: a free inset that places a hole, an input
+bearing bore that sets a pocket, a driven wall that sets a fillet (a chain).
+sdm-core's dimension audit finds which by nudging each declared dimension and
+watching what moves. A hand-written label would drift from what the code does.
+
+- **Every declared dimension names its `source`:** `requirement:<id>`,
   `part:<vendor>:<number>`, `standard:<name, clause>`,
-  `process:<profile>:<limit>`, `choice: <why>` (a reasoned design decision),
-  or `tool: <what>`. A number with no source is a guess nobody can check.
+  `process:<profile>:<limit>`, `parent:<assembly>:<param>`, `choice: <why>`
+  (a reasoned design decision, the usual source of a free one), or
+  `tool: <what>`. A number with no source is a guess nobody can check.
+- **A process limit is a floor, not a driver.** The wall is sized by its load;
+  the minimum wall is the floor under it. Write it as a driven dimension
+  (`max(load_sized_wall, min_wall)`) or as a `validate()` rule on a free one,
+  not as the wall itself. Declare the floor as an input with
+  `role = "derived"`; it is allowed to move no geometry.
 - **A number that comes from somewhere else is never retyped.** One home per
   number; everything else points at it. A groove for a spring is driven by
   the spring's width, not by a second copy of it.
@@ -144,20 +164,23 @@ first time an input changes.
   problem.
 - **A clearance is applied at exactly one place,** so it is never added twice
   or forgotten once.
-- **A clean check is evidence about what it covers, not about what it does
-  not.** The worst miss is a coupled dimension that never became a parameter:
-  `LEG_R = 41.0  # set by the motor case` passes every test. When the tests are
-  green, ask what drives each dimension before trusting it.
+- **A clean audit is evidence about what it covers, not about what it does
+  not.** It checks that nothing dangles, not that each input points at the
+  right thing. `parent:motor:case_radius` is checked for form, not against the
+  motor's file. When the tests are green, ask what drives each dimension.
 - **Turning literals into parameters must not change the part.** Build and
   hash the output before, wire the parameters in, rebuild, compare hashes.
   Identical output proves the wiring; a part that merely looks right does not.
 
-`tests/test_parametric.py` holds the line, and is worth copying verbatim:
-every parameter has a `source`, a `choice` gives a reason, no number in the
-emitted trees stays put when every parameter is changed one at a time (a
-typed-in number), and every length scales exactly when the length parameters
-are scaled together (a typed-in offset, `outer_radius + 1.3`). Plain constants
-(0, 1/2, 1, 2, angles of whole 15 degree steps from counts) are allowed.
+`tests/test_dimensions.py` holds the line by calling sdm-core's
+`assert_dimensions` on this CEM's part and its declared dimensions. The check
+lives in sdm-core so every CEM runs the same one; copy the test (it is a few
+lines) and point it at your part. It fails on a number no declared dimension
+moves (typed in), a declared dimension that moves nothing (unused, unless it
+is a limit or a tool setting), a length that does not scale with the rest (a
+typed-in offset, `outer_radius + 1.3`), and a declaration missing its origin,
+source or bounds. Plain constants (0, 1/2, 1, 2, angles of whole 15 degree
+steps from counts) are allowed.
 
 (These rules come from the Parametric Function Table spec,
 `emergent-matter-parametric-function-table`, which is retired as a format.
@@ -193,9 +216,10 @@ Miss any step and the failure is silent:
 4. A rule in `validate()` if any combination involving it is invalid, plus a
    `[[cem.constraints]]` entry with a `why`.
 5. A field assertion in `test_build.py` if it changes the shape.
-6. A `source` in `cem.toml`: the requirement, part, standard, process limit or
-   reasoned choice the number comes from. `test_parametric.py` refuses a
-   parameter without one.
+6. An `origin` (`free` with `bounds`, or `input`) and a `source` in
+   `cem.toml`: the requirement, part, standard, process limit, parent assembly
+   or reasoned choice the value comes from. `test_dimensions.py` refuses a
+   dimension without them.
 
 `test_manifest.py` catches 1-vs-2 in both directions. Nothing catches a missing
 step 4 except you.

@@ -1,0 +1,1 @@
+Every dimension is declared free (with bounds) or input (with its source) in cem.toml, or computed from those; tests/test_dimensions.py runs sdm-core's dimension audit, which fails on a typed-in number, an unused dimension or a typed-in offset.

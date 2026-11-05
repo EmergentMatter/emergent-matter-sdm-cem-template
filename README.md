@@ -121,13 +121,13 @@ does, and checks all of it without a browser. It reads the entry point from
 it the manifest describes a design nobody is building, and it drifts silently
 because nothing else reads it.
 
-`test_parametric.py` holds the other line: every number has a source. Nothing
-is positioned or sized by a number that is not traceable to a requirement, a
-bought part, a standard, a process limit or a reasoned design choice. Every
-parameter in `cem.toml` names its `source`; every other number is computed
-from parameters. The test fails on a parameter with no source, on a number
-typed into the shape code, and on a length offset by a typed-in number. See
-CLAUDE.md, "Every number has a source", for the full rules.
+`test_dimensions.py` holds the other line: every dimension is free (declared
+with bounds; an optimizer may move it), an input (declared with its source;
+fixed unless tradeable), or driven (computed from the others), and nothing
+dangles. It calls sdm-core's dimension audit, which fails on a number typed
+into the shape code, a declared dimension that moves nothing, and a length
+with a typed-in offset. See CLAUDE.md, "Every dimension is free, an input, or
+driven", for the full rules.
 
 ## Documentation
 

@@ -12,17 +12,25 @@
 # Derived values (d_half_min_side) are NOT declared here. They are @property on
 # the dataclass: a manifest declares surface, not a second copy of the model.
 #
-# `source` says where the number comes from, and every param has one (Rob,
-# 2026-10-30: parametric modelling is critical; nothing is positioned or sized
-# that is not traceable). One of:
+# Every dimension is free, an input, or driven (Rob, 2026-11-04), and nothing
+# dangles. `origin` says which of the first two a declared param is:
+#   free   picked within `bounds`; an optimizer may move it
+#   input  set from outside the part; fixed unless `tradeable = true`
+# Driven dimensions are computed (@property) and never declared here. Which
+# dimensions are DRIVING is not declared either: sdm-core's dimension audit
+# finds it by nudging each one and watching what moves. Tool settings
+# (role = "tool") need no origin.
+#
+# `source` says where the value comes from, and every param has one. One of:
 #   requirement:<id>          a line of the project's requirements file
 #   part:<vendor>:<number>    a bought part's catalogue page (its dimensions)
 #   standard:<name, clause>   a published table (thread, clearance, fit)
 #   process:<profile>:<limit> a manufacturing limit (minimum wall, hole)
+#   parent:<assembly>:<param> a dimension the parent assembly sets
 #   choice: <why>             a design decision, with its reason in one line
 #   tool: <what>              configures the toolchain, not the part
 # Every other number in the part is computed from these (@property), and
-# tests/test_parametric.py fails on a number typed into the shape code.
+# tests/test_dimensions.py fails on a number typed into the shape code.
 #
 # The annotated version, with every role, `emits`, bounds and constraint
 # explained, is examples/bushing_sdf/cem.toml.
@@ -45,6 +53,7 @@ bounds = [5.0, 200.0]
 emits = "length"
 doc = "Extent along x."
 source = "requirement:F1.1 (example ID: the length the mating pocket takes)"
+origin = "input"
 
 [cem.params.d_width]
 type = "float"
@@ -55,6 +64,7 @@ bounds = [5.0, 200.0]
 emits = "width"
 doc = "Extent along y."
 source = "requirement:F1.2 (example ID: the width the mating pocket takes)"
+origin = "input"
 
 [cem.params.d_height]
 type = "float"
@@ -65,6 +75,7 @@ bounds = [5.0, 200.0]
 emits = "height"
 doc = "Extent along z. The block stands on z = 0."
 source = "requirement:F1.3 (example ID: the height under the cover it fits beneath)"
+origin = "input"
 
 [cem.params.d_edge_radius]
 type = "float"
@@ -75,6 +86,7 @@ bounds = [0.0, 20.0]
 emits = "edge_radius"
 doc = "Radius of the twelve rounded edges. 0 gives sharp edges."
 source = "choice: example value; rounds the edges so nothing sharp is handled, well under half the smallest side"
+origin = "free"
 
 [cem.params.d_voxel_size_mm]
 type = "float"

@@ -229,3 +229,13 @@ def test_every_param_ships_free_with_a_range(part) -> None:
 
 def test_the_manifest_names_the_part_it_builds() -> None:
     assert CASE.cem["name"] == build_bushing_part().name
+
+
+def test_every_dimension_is_free_input_or_driven() -> None:
+    """The same dimension audit the template's own part gets (tests/test_dimensions.py)."""
+    import tomllib
+
+    from software_defined_matter.dimension_audit import assert_dimensions
+
+    declared = tomllib.loads(CASE.manifest.read_text())["cem"]["params"]
+    assert_dimensions(build_bushing_part, BushingParameters(), declared)
