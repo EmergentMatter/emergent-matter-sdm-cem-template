@@ -17,6 +17,14 @@ import pytest
 
 from widget_sdf.parameters import WidgetParameters
 from widget_sdf.sdm.cli import SCRIPT, _coerce, main
+from widget_sdf.sdm.harness import LAUNCHER_ENV, PLAIN_SHIM, generator_launcher
+
+
+@pytest.fixture(autouse=True)
+def _uv_launcher(monkeypatch):
+    """The tests below describe the `uv` form unless one says otherwise, so
+    they do not depend on whether this machine has `uv`."""
+    monkeypatch.setenv(LAUNCHER_ENV, "uv")
 
 
 def test_out_and_set_are_both_accepted(tmp_path):
@@ -231,3 +239,74 @@ def test_an_equals_form_out_is_dropped_too(tmp_path):
     assert main([f"--out={out}"]) == 0
     gen = json.loads(out.read_text())["metadata"]["generator"]
     assert gen["argv"] == ["uv", "run", "--frozen", SCRIPT]
+
+
+def _plain_record(tmp_path, monkeypatch, *args: str) -> dict:
+    monkeypatch.setenv(LAUNCHER_ENV, "python")
+    out = tmp_path / "output" / "p.sdm"
+    assert main(["--out", str(out), *args]) == 0
+    return json.loads(out.read_text())["metadata"]["generator"]
+
+
+def test_the_plain_python_record_names_no_uv_and_no_machine(repo, monkeypatch):
+    tmp_path = repo
+    gen = _plain_record(tmp_path, monkeypatch, "--set", "d_edge_radius=4")
+    assert gen["argv"][1:] == [PLAIN_SHIM, "--set", "d_edge_radius=4"]
+    assert gen["argv"][0] in ("python", "python3")
+    assert "uv" not in gen["argv"]
+    for arg in gen["argv"]:
+        assert not Path(arg).is_absolute()
+    assert gen["cwd"] == ".."
+    assert str(tmp_path) not in json.dumps(gen)
+
+
+def test_the_plain_python_record_re_runs_from_its_cwd(tmp_path, monkeypatch):
+    """What the engine does: the recorded argv plus its own `--out`, run in
+    the recorded `cwd` resolved against the file, with no `uv` on PATH and
+    no PYTHONPATH."""
+    import subprocess
+    import sys
+
+    root = Path(__file__).resolve().parents[1]
+    monkeypatch.setenv(LAUNCHER_ENV, "python")
+    out = root / "output" / ".plain-record" / "p.sdm"
+    again = out.parent / "again.sdm"
+    try:
+        assert main(["--out", str(out), "--set", "length=50"]) == 0
+        gen = json.loads(out.read_text())["metadata"]["generator"]
+        assert (out.parent / gen["cwd"]).resolve() == root
+        argv = [sys.executable, *gen["argv"][1:], "--out", str(again)]
+        r = subprocess.run(
+            argv,
+            cwd=(out.parent / gen["cwd"]).resolve(),
+            capture_output=True,
+            text=True,
+            env={"PATH": "/nonexistent"},
+        )
+        assert r.returncode == 0, r.stderr
+        before = json.loads(out.read_text())["params"]["length"]["value"]
+        assert json.loads(again.read_text())["params"]["length"]["value"] == before == 50
+    finally:
+        out.unlink(missing_ok=True)
+        again.unlink(missing_ok=True)
+
+
+def test_the_launcher_follows_uv_on_path_unless_forced(monkeypatch):
+    from widget_sdf.sdm import harness
+
+    monkeypatch.delenv(LAUNCHER_ENV)
+    monkeypatch.setattr(harness.shutil, "which", lambda n: "/x/" + n if n == "uv" else None)
+    assert generator_launcher("s")[:3] == ["uv", "run", "--frozen"]
+
+    monkeypatch.setattr(harness.shutil, "which", lambda n: "/x/" + n if n == "python3" else None)
+    assert generator_launcher("s") == ["python3", PLAIN_SHIM]
+
+    monkeypatch.setattr(harness.shutil, "which", lambda n: None)
+    assert generator_launcher("s") == ["python", PLAIN_SHIM]
+
+    monkeypatch.setenv(LAUNCHER_ENV, "python")
+    monkeypatch.setattr(harness.shutil, "which", lambda n: "/x/" + n)
+    assert generator_launcher("s")[1] == PLAIN_SHIM, "forced python wins over a present uv"
+
+    monkeypatch.setenv(LAUNCHER_ENV, "nonsense")
+    assert generator_launcher("s")[:3] == ["uv", "run", "--frozen"], "unknown value decides by PATH"

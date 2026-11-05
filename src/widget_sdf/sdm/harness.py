@@ -10,9 +10,12 @@ The record is PORTABLE: no absolute path, and `cwd` is this project's root
 relative to the `.sdm` (the engine resolves it against the file), whatever
 directory the build was started from. A `.sdm` is committed and shared, so a
 path into one machine's venv fails with "authoring command not found" on
-every other machine. The command is `uv run --frozen <script>`, which finds
-the project's own venv from `cwd` and runs the script from its locked
-dependencies.
+every other machine. Where `uv` is present the command is
+`uv run --frozen <script>`, which finds the project's own venv from `cwd` and
+runs the script from its locked dependencies. Where it is not (a hosted
+workspace), it is `python scripts/build.py`, which runs the same CLI with
+whatever interpreter `python` is. The choice is made when the file is
+written and recorded in it; `SDM_GENERATOR_LAUNCHER=uv|python` forces it.
 
 Only a `.sdm` inside the project can be portable. One written elsewhere (or on
 another Windows drive) records the absolute project root, re-emits only on
@@ -25,6 +28,7 @@ The `/reemit` contract is `--out` AND `--set`. A CEM whose CLI takes only
 from __future__ import annotations
 
 import os
+import shutil
 import sys
 from datetime import date
 from pathlib import Path
@@ -35,9 +39,12 @@ if TYPE_CHECKING:  # pragma: no cover
 
 __all__ = [
     "GENERATOR_LAUNCHER",
+    "LAUNCHER_ENV",
+    "PLAIN_SHIM",
     "NON_REPLAYABLE_FLAGS",
     "OUTPUT_DIR",
     "PROJECT_ROOT",
+    "generator_launcher",
     "portable_generator_argv",
     "save_sdm",
     "stamped",
@@ -76,6 +83,39 @@ NON_REPLAYABLE_FLAGS: frozenset = frozenset()
 #: uses uv.lock as it stands, so a re-emit never rewrites the lockfile.
 GENERATOR_LAUNCHER: tuple = ("uv", "run", "--frozen")
 
+#: The plain-Python form: a script under the project root, run with `cwd` as
+#: the root. It puts `src/` on the path itself, because a hosted workspace's
+#: venv does not have this package installed.
+PLAIN_SHIM = "scripts/build.py"
+
+#: `uv` or `python` forces the launcher; anything else decides by whether `uv`
+#: is on PATH.
+LAUNCHER_ENV = "SDM_GENERATOR_LAUNCHER"
+
+
+def _python_name() -> str:
+    """A bare interpreter name that resolves here: `python`, else `python3`."""
+    for name in ("python", "python3"):
+        if shutil.which(name):
+            return name
+    return "python"
+
+
+def generator_launcher(script: str) -> list:
+    """The recorded command up to the build's own arguments.
+
+    Decided when the file is written: `uv run --frozen <script>` where `uv`
+    is on PATH, `python scripts/build.py` where it is not. Neither names a
+    machine.
+    """
+    choice = os.environ.get(LAUNCHER_ENV, "").strip().lower()
+    if choice not in ("uv", "python"):
+        choice = "uv" if shutil.which("uv") else "python"
+    if choice == "uv":
+        return [*GENERATOR_LAUNCHER, script]
+    return [_python_name(), PLAIN_SHIM]
+
+
 #: Flags the re-emit supplies itself. The engine appends its own `--out`, and
 #: the recorded one is an absolute path on the machine that built the file.
 _RE_EMIT_SUPPLIED = "--out"
@@ -103,10 +143,10 @@ def portable_generator_argv(argv: list) -> list:
 
     `argv[0]` is whatever launched the build, usually the absolute path of the
     console script inside one developer's venv. Only its name survives, and
-    `uv run` finds the script again from the project.
+    the launcher finds the script again from the project.
     """
     script = Path(str(argv[0])).stem
-    return [*GENERATOR_LAUNCHER, script, *_without_out(_replayable_argv(list(argv[1:])))]
+    return [*generator_launcher(script), *_without_out(_replayable_argv(list(argv[1:])))]
 
 
 def _recorded_cwd(out: Path) -> str:

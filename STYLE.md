@@ -15,7 +15,9 @@ How to write, test, and document code in EmergentMatter repos.
 ## Python style
 
 - **Use `uv` only.** `uv sync`, `uv run pytest`, `uv run ruff check .`. No
-  bare `pip`, `poetry`, or `python -m venv`.
+  bare `pip`, `poetry`, or `python -m venv`. Where `uv` is absent and the
+  dependencies are installed (a hosted workspace), `python X` runs the same
+  scripts; never install `uv` there.
 - **Use src-layout + hatchling.** `src/<package>/`, not a top-level
   package directory.
 - **Commit `uv.lock`.** Never gitignore it. CI syncs with `uv sync

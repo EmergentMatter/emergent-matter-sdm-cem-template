@@ -1,0 +1,1 @@
+A part built where `uv` is absent records `python scripts/build.py` as its generator, so Regenerate works in a workspace with only Python; `scripts/check_contract.py` runs with the current interpreter when `uv` is missing.

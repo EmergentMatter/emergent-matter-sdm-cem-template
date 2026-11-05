@@ -54,6 +54,9 @@ Every part in this repo is built through the CEM.
   the same CLI directly:
   `PYTHONPATH=src python -m widget_sdf.sdm.cli --out output/part.sdm --set <name>=<value>`
   (drop the `PYTHONPATH=src` prefix where the environment already sets it).
+  Without `PYTHONPATH`, `python scripts/build.py --out output/part.sdm --set
+  <name>=<value>` runs the same CLI from the project root. A `.sdm` built where
+  there is no `uv` records that command as its generator.
   Never try to install anything or fetch `uv`: no `pip install`, no downloads.
 - Where there is no `uv`, the work is saved for you each turn: do not run
   `git add`, `git commit` or `git config`. On a local machine, commit only when
@@ -163,7 +166,8 @@ inferring one from the prefix.
 uv run pytest
 ```
 
-Without `uv`: `python -m pytest`.
+Without `uv`: `python -m pytest`, and `python scripts/check_contract.py` for the
+contract check.
 
 No visible windows, no GPU, no network. A CEM's tests should run in under a
 second plus the JAX import.

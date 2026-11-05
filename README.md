@@ -106,6 +106,9 @@ uv run pytest
 uv run python scripts/check_contract.py
 ```
 
+Without `uv`, `python -m pytest` and `python scripts/check_contract.py` work the
+same way.
+
 **A green test suite is not a working CEM.** It means your CEM is internally
 consistent. It does not mean a tool can drive it: bounds can be missing, a
 param can ship without `free=True` (the Scene is empty), the CLI can reject the very name the document emits, an integer can arrive as

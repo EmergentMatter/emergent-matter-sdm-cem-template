@@ -342,12 +342,15 @@ def test_manifest_and_dataclass_still_agree_after_the_rename(tmp_path: Path) -> 
     )
 
 
-def test_the_renamed_cli_still_satisfies_the_tool_contract(tmp_path: Path) -> None:
+def test_the_renamed_cli_still_satisfies_the_tool_contract(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """The substance of `scripts/check_contract.py`, run in-process against
     the renamed CLI: build, the emitted-name alias, an int-as-float value,
     an unknown param refused, and the recorded generator replaying to the
     same document. A rename that broke any of these would be invisible
     until a viewer, not a test, tried to drive the result."""
+    monkeypatch.setenv("SDM_GENERATOR_LAUNCHER", "uv")
     dst, _parameters, _assembly, cli = _renamed_copy(tmp_path)
 
     out = dst / "out.sdm"
@@ -525,6 +528,44 @@ def test_the_fallback_build_line_runs_without_uv_on_the_path(renamed_base: Path)
 
     assert result.returncode == 0, result.stderr
     assert json.loads(out.read_text())["name"] == THING
+
+
+def test_the_plain_python_shim_builds_the_renamed_package(renamed_base: Path) -> None:
+    """`scripts/build.py` is what a part built without `uv` records. It finds
+    the renamed entry point from pyproject and needs neither `uv`, nor
+    PYTHONPATH, nor an installed package."""
+    out = renamed_base / "shim.sdm"
+    result = subprocess.run(
+        [sys.executable, "scripts/build.py", "--out", str(out), "--set", "length=50"],
+        cwd=renamed_base,
+        capture_output=True,
+        text=True,
+        env={"PATH": "/nonexistent"},
+    )
+
+    assert result.returncode == 0, result.stderr
+    doc = json.loads(out.read_text())
+    assert doc["name"] == THING and doc["params"]["length"]["value"] == 50
+
+
+def test_the_plain_python_shim_exits_nonzero_when_the_build_refuses(renamed_base: Path) -> None:
+    result = subprocess.run(
+        [
+            sys.executable,
+            "scripts/build.py",
+            "--out",
+            str(renamed_base / "x.sdm"),
+            "--set",
+            "nope=1",
+        ],
+        cwd=renamed_base,
+        capture_output=True,
+        text=True,
+        env={"PATH": "/nonexistent"},
+    )
+
+    assert result.returncode != 0
+    assert "nope" in result.stderr
 
 
 def test_the_fallback_build_line_needs_src_on_the_path(renamed_base: Path) -> None:

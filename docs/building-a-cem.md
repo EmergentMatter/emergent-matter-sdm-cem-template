@@ -78,11 +78,14 @@ hope the generator reads its own output. `harness.py` stamps the declaration
 and `check_contract.py` fails without it.
 
 `harness.py` stamps `metadata.generator` with the command that produced the
-file, as `uv run --frozen <script> ...` with a `cwd` relative to the `.sdm`, so
-the file re-emits on any machine. Without it the `.sdm` can be rendered and never re-derived.
-This describes a local machine, where `uv` is how the CEM runs. Where there is
-no `uv` and the dependencies are already installed, run the package CLI with
-`python -m`, as `CLAUDE.md` says; do not install `uv`.
+file and a `cwd` relative to the `.sdm`, so the file re-emits on any machine.
+Without it the `.sdm` can be rendered and never re-derived. Where `uv` is on
+PATH the command is `uv run --frozen <script> ...`; where it is not, it is
+`python scripts/build.py ...`, which runs the same CLI with `src/` on the
+path. The choice is made when the file is written and recorded in it;
+`SDM_GENERATOR_LAUNCHER=uv` or `python` forces it. Where there is no `uv` and
+the dependencies are already installed, run the package CLI with plain
+`python` (`python -m`, or `python scripts/build.py`), as `CLAUDE.md` says; do not install `uv`.
 
 **Read [`docs/traps.md`](docs/traps.md) before writing geometry.** It is the
 list of mistakes this stack lets you make that produce a document that

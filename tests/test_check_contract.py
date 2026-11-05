@@ -74,3 +74,47 @@ def test_the_templates_built_part_passes_against_its_own_manifest(contract, tmp_
     assert contract.design_params_not_free(doc, manifest) == []
     doc["length"]["free"] = False
     assert contract.design_params_not_free(doc, manifest) == ["length"]
+
+
+def test_the_command_uses_uv_when_present_and_this_interpreter_when_not(contract) -> None:
+    with_uv = contract.build_command(["--out", "x"], have_uv=True)
+    assert with_uv == ["uv", "run", contract.SCRIPT, "--out", "x"]
+
+    without = contract.build_command(["--out", "x"], have_uv=False)
+    assert without[0] == __import__("sys").executable
+    assert without[1:] == [str(ROOT / "scripts" / "build.py"), "--out", "x"]
+    assert "uv" not in without
+
+
+def test_the_recorded_launcher_is_either_form_and_nothing_else(contract) -> None:
+    script = contract.SCRIPT
+    args = ["--set", "length=50"]
+    assert contract.replay_args(["uv", "run", "--frozen", script, *args])[0] == args
+    assert contract.replay_args(["python", "scripts/build.py", *args])[0] == args
+    assert contract.replay_args(["python3", "scripts/build.py", *args])[0] == args
+    for bad in (
+        ["python", "scripts/other.py", *args],
+        ["/usr/bin/python", "scripts/build.py", *args],
+        ["uv", "run", script, *args],
+        ["python"],
+        [],
+    ):
+        assert contract.replay_args(bad)[0] is None, bad
+
+
+def test_the_contract_check_passes_on_the_template_without_uv(tmp_path) -> None:
+    """Run the whole script with no `uv` on PATH: it must use this interpreter
+    and pass, not stop with an error about `uv`."""
+    import subprocess
+    import sys
+
+    r = subprocess.run(
+        [sys.executable, str(ROOT / "scripts" / "check_contract.py")],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        env={"PATH": "/nonexistent", "PYTHONPATH": str(ROOT / "src")},
+    )
+    assert "uv is not installed" not in r.stderr
+    assert r.returncode == 0, r.stdout[-1500:] + r.stderr[-500:]
+    assert "python scripts/build.py" in r.stdout or "scripts/build.py" in r.stdout

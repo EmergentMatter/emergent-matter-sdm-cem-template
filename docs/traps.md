@@ -120,8 +120,9 @@ opened elsewhere, and the engine runs `argv` as written, with `cwd` resolved
 against the file. `sys.argv[0]` is the absolute path of the console script in
 one developer's venv and `Path.cwd()` is their checkout, so recording either
 makes every re-emit elsewhere fail with `authoring command not found`.
-`harness.py` records `uv run --frozen <script>` and, as `cwd`, the project
-root relative to the `.sdm`, wherever the build was started from. Bare
+`harness.py` records `uv run --frozen <script>` (where `uv` is on PATH) or
+`python scripts/build.py` (where it is not) and, as `cwd`, the project root
+relative to the `.sdm`, wherever the build was started from. Bare
 `python` is not a substitute: the process that re-emits has its own
 interpreter, not this CEM's venv. Only a `.sdm` inside the repo can be
 portable: one written outside it (or on another Windows drive) records the
@@ -129,13 +130,14 @@ absolute project root, re-emits only on that machine, and the build warns on
 stderr. `check_contract.py` builds under the repo and fails on an absolute
 path or an absolute `cwd`.
 
-**The process that re-emits needs `uv` on its PATH.** The recorded command
-starts with `uv`, so a sidecar or viewer launched without `~/.local/bin` on its
-PATH (from a desktop launcher, a service, `env -i`) refuses every re-emit with
-`authoring command not found: uv`. Start it from a shell where `uv --version`
-works. This is about a local machine. Where there is no `uv` and the
-dependencies are already installed, do not install it: run the package CLI
-with `python -m`, as `CLAUDE.md` says.
+**A recorded `uv` command needs `uv` on the re-emitting process's PATH.** A
+part built where `uv` was present records `uv run ...`, so a sidecar or viewer
+launched without `~/.local/bin` on its PATH (from a desktop launcher, a
+service, `env -i`) refuses every re-emit with `authoring command not found:
+uv`. Start it from a shell where `uv --version` works. A part built where
+there is no `uv` records `python scripts/build.py` instead and needs only a
+`python` on PATH that has the dependencies. If it is missing, do not install `uv` to make a
+re-emit work; run the package CLI with `python -m`, as `CLAUDE.md` says.
 
 **Declare the flags the CLI takes.** A tool driving your CEM cannot tell from
 the recorded argv whether it accepts `--out` and `--set`. Undeclared, the
@@ -147,7 +149,7 @@ geometry.
 
 ```python
 part.metadata["generator"] = {
-    "argv": ["uv", "run", "--frozen", "<script>", ...],
+    "argv": ["uv", "run", "--frozen", "<script>", ...],  # or ["python", "scripts/build.py", ...]
     "cwd": "..",
     "accepts": ["--out", "--set"],
 }

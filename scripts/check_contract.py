@@ -2,6 +2,7 @@
 """Check this CEM against the contract a TOOL depends on. No browser needed.
 
     uv run python scripts/check_contract.py
+    python scripts/check_contract.py          # where there is no uv
 
 WHY THIS EXISTS. Building one real CEM turned up fourteen defects. Ten were
 found by *running* something rather than by testing, and four specifically by
@@ -76,9 +77,19 @@ def manifest() -> dict:
         return tomllib.load(fh)
 
 
+def build_command(args: list[str], *, have_uv: bool | None = None) -> list[str]:
+    """The command that runs the CEM's entry point: `uv run` where `uv` is on
+    PATH, else this interpreter on `scripts/build.py`."""
+    if have_uv is None:
+        have_uv = bool(shutil.which("uv"))
+    if have_uv:
+        return ["uv", "run", SCRIPT, *args]
+    return [sys.executable, str(ROOT / "scripts" / "build.py"), *args]
+
+
 def run(args: list[str]) -> subprocess.CompletedProcess:
     """Invoke the CEM's entry point the way a tool would."""
-    return subprocess.run(["uv", "run", SCRIPT, *args], cwd=ROOT, capture_output=True, text=True)
+    return subprocess.run(build_command(args), cwd=ROOT, capture_output=True, text=True)
 
 
 def _is_absolute(s: str) -> bool:
@@ -101,10 +112,27 @@ def entry_script() -> str:
 
 SCRIPT = entry_script()
 
+#: What a `.sdm` records when it was built where `uv` is absent.
+PLAIN_SHIM = "scripts/build.py"
+
 
 #: Roles that configure the toolchain or feed a check rather than the design,
 #: so such a param may ship fixed.
 _NOT_DESIGN_ROLES = ("tool", "derived")
+
+
+def replay_args(recorded: list[str]) -> tuple[list[str] | None, str]:
+    """The build arguments after the recorded launcher, and the launcher shown.
+
+    Two launchers are valid: `uv run --frozen <script>` and
+    `python scripts/build.py` (`python3` too). Anything else gives `None`.
+    """
+    uv = ["uv", "run", "--frozen", SCRIPT]
+    if recorded[: len(uv)] == uv:
+        return recorded[len(uv) :], " ".join(uv)
+    if len(recorded) >= 2 and recorded[0] in ("python", "python3") and recorded[1] == PLAIN_SHIM:
+        return recorded[2:], f"{recorded[0]} {PLAIN_SHIM}"
+    return None, f"{' '.join(uv)}` or `python {PLAIN_SHIM}"
 
 
 def design_params_not_free(doc_params: dict, manifest_params: dict) -> list[str]:
@@ -122,10 +150,6 @@ def design_params_not_free(doc_params: dict, manifest_params: dict) -> list[str]
 
 
 def main(argv: list[str] | None = None) -> int:
-    if not shutil.which("uv"):
-        print("error: uv is not installed; run scripts/doctor.py", file=sys.stderr)
-        return 1
-
     # Build under the repo: a .sdm written outside it records an absolute cwd
     # by design. `output/` is ignored by git and the dot keeps `_tree_state`
     # from reading these builds as side effects.
@@ -282,11 +306,10 @@ def _checks(tmp: Path) -> int:
         "the recorded working directory, read from the .sdm, is this repo",
     )
 
-    launcher = ["uv", "run", "--frozen"]
-    replay = recorded[len(launcher) + 1 :] if recorded[: len(launcher)] == launcher else None
+    replay, shown = replay_args(recorded)
     check(
-        replay is not None and recorded[len(launcher)] == SCRIPT,
-        f"the recorded command is `{' '.join([*launcher, SCRIPT])}`",
+        replay is not None,
+        f"the recorded command is `{shown}`",
         "" if replay is not None else f"records {recorded[:4]}",
     )
     if replay is not None:
