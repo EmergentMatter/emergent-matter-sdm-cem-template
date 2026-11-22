@@ -10,9 +10,11 @@ The record is PORTABLE: no absolute path, and `cwd` is this project's root
 relative to the `.sdm` (the engine resolves it against the file), whatever
 directory the build was started from. A `.sdm` is committed and shared, so a
 path into one machine's venv fails with "authoring command not found" on
-every other machine. The command is `uv run --frozen <script>`, which finds
-the project's own venv from `cwd` and runs the script from its locked
-dependencies.
+every other machine. The command is `uv run --frozen python -m <module>`, which
+finds the project's own venv from `cwd` and runs the CLI module from its locked
+dependencies. The module form, not the console script, because a workspace
+that runs `uv run` against a shared environment has the package on its import
+path but no console script for it.
 
 Only a `.sdm` inside the project can be portable. One written elsewhere (or on
 another Windows drive) records the absolute project root, re-emits only on
@@ -25,7 +27,9 @@ The `/reemit` contract is `--out` AND `--set`. A CEM whose CLI takes only
 from __future__ import annotations
 
 import os
+import re
 import sys
+import tomllib
 from datetime import date
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -98,15 +102,42 @@ def _without_out(args: list) -> list:
     return kept
 
 
+_DOTTED = re.compile(r"[A-Za-z_]\w*(\.[A-Za-z_]\w*)+")
+
+
+def _module_for(first: str) -> str | None:
+    """The CLI module for `argv[0]`: itself when it is a dotted module name,
+    else the module the `[project.scripts]` entry of that name points at (a
+    console-script path or name, as an older `cli.py` passes), else None."""
+    if _DOTTED.fullmatch(first):
+        return first
+    try:
+        with (PROJECT_ROOT / "pyproject.toml").open("rb") as fh:
+            scripts = tomllib.load(fh).get("project", {}).get("scripts", {})
+    except (OSError, tomllib.TOMLDecodeError):
+        return None
+    target = scripts.get(Path(first).stem) or scripts.get(Path(first).name)
+    return str(target).split(":", 1)[0] if target else None
+
+
 def portable_generator_argv(argv: list) -> list:
     """The command that rebuilds this document, with no machine in it.
 
-    `argv[0]` is whatever launched the build, usually the absolute path of the
-    console script inside one developer's venv. Only its name survives, and
-    `uv run` finds the script again from the project.
+    `argv[0]` is the dotted name of the CLI module (`widget_sdf.sdm.cli`), never
+    a path into one developer's venv. `uv run` finds the project from `cwd` and
+    runs the module with the project's interpreter.
     """
-    script = Path(str(argv[0])).stem
-    return [*GENERATOR_LAUNCHER, script, *_without_out(_replayable_argv(list(argv[1:])))]
+    module = _module_for(str(argv[0]))
+    if module is None:  # a script name nothing maps: keep the older script form
+        script = Path(str(argv[0])).stem
+        return [*GENERATOR_LAUNCHER, script, *_without_out(_replayable_argv(list(argv[1:])))]
+    return [
+        *GENERATOR_LAUNCHER,
+        "python",
+        "-m",
+        module,
+        *_without_out(_replayable_argv(list(argv[1:]))),
+    ]
 
 
 def _recorded_cwd(out: Path) -> str:

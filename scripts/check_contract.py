@@ -76,9 +76,11 @@ def manifest() -> dict:
         return tomllib.load(fh)
 
 
-def run(args: list[str]) -> subprocess.CompletedProcess:
-    """Invoke the CEM's entry point the way a tool would."""
-    return subprocess.run(["uv", "run", SCRIPT, *args], cwd=ROOT, capture_output=True, text=True)
+def run(args: list[str], launcher: list[str] | None = None) -> subprocess.CompletedProcess:
+    """Invoke the CEM's entry point the way a tool would: by module, unless the
+    caller names the launcher (the replay uses whichever form the document recorded)."""
+    cmd = launcher or ["uv", "run", "python", "-m", MODULE]
+    return subprocess.run([*cmd, *args], cwd=ROOT, capture_output=True, text=True)
 
 
 def _is_absolute(s: str) -> bool:
@@ -86,20 +88,28 @@ def _is_absolute(s: str) -> bool:
     return Path(s).is_absolute() or PureWindowsPath(s).is_absolute()
 
 
-def entry_script() -> str:
-    """The console script this CEM installs, from pyproject.
+def entry_scripts() -> dict[str, str]:
+    with (ROOT / "pyproject.toml").open("rb") as fh:
+        return tomllib.load(fh).get("project", {}).get("scripts", {})
 
-    Read rather than hard-coded so this file copies verbatim into any CEM,
-    which is the whole point of it.
+
+def entry_module() -> str:
+    """The CLI module this CEM's first console script points at, from pyproject.
+
+    The check runs `python -m <module>`, not the console script: a script exists
+    only where the project is installed, and a workspace that shares one
+    environment (and sets `PYTHONPATH` instead) has none. Read rather than
+    hard-coded so this file copies verbatim into any CEM.
     """
     with (ROOT / "pyproject.toml").open("rb") as fh:
         scripts = tomllib.load(fh).get("project", {}).get("scripts", {})
     if not scripts:
         raise SystemExit("pyproject declares no [project.scripts]; a tool has nothing to call")
-    return next(iter(scripts))
+    return next(iter(scripts.values())).split(":", 1)[0]
 
 
-SCRIPT = entry_script()
+MODULE = entry_module()
+SCRIPT = next(iter(entry_scripts()))
 
 
 #: Roles that configure the toolchain or feed a check rather than the design,
@@ -282,12 +292,21 @@ def _checks(tmp: Path) -> int:
         "the recorded working directory, read from the .sdm, is this repo",
     )
 
-    launcher = ["uv", "run", "--frozen"]
-    replay = recorded[len(launcher) + 1 :] if recorded[: len(launcher)] == launcher else None
+    # The module form is the one that works in a workspace with no installed
+    # console script. The script form is accepted so a CEM whose `cli.py` and
+    # `harness.py` predate it still passes; migrate all three files together.
+    launcher = ["uv", "run", "--frozen", "python", "-m", MODULE]
+    legacy = ["uv", "run", "--frozen", SCRIPT]
+    replay = None
+    replay_launcher = None
+    for form in (launcher, legacy):
+        if recorded[: len(form)] == form:
+            replay, replay_launcher = recorded[len(form) :], ["uv", "run", *form[3:]]
+            break
     check(
-        replay is not None and recorded[len(launcher)] == SCRIPT,
-        f"the recorded command is `{' '.join([*launcher, SCRIPT])}`",
-        "" if replay is not None else f"records {recorded[:4]}",
+        replay is not None,
+        f"the recorded command is `{' '.join(launcher)}` (or the older `{' '.join(legacy)}`)",
+        "" if replay is not None else f"records {recorded[:6]}",
     )
     if replay is not None:
         again = tmp / "replay.sdm"
@@ -297,7 +316,7 @@ def _checks(tmp: Path) -> int:
         # no other check here looks at the filesystem it ran in.
         before = _tree_state()
         d_t0 = time.perf_counter()
-        r = run(replay)
+        r = run(replay, replay_launcher)
         d_elapsed = time.perf_counter() - d_t0
         touched = sorted(set(_tree_state().items()) - set(before.items()))
         b_ran = r.returncode == 0 and again.exists()

@@ -46,6 +46,13 @@ def _coerce(field_name: str, raw: str) -> bool | int | float | str:
 #: generator command, so it must not depend on how this process was launched.
 SCRIPT = "widget-build"
 
+#: The module the recorded generator runs: `python -m <MODULE>`. The console
+#: script exists only where the project is installed (a laptop's `uv sync`); the
+#: module runs wherever the package is importable, which includes a workspace
+#: that sets `PYTHONPATH` and installs nothing. It follows the package, so
+#: `scripts/rename.py` has nothing to rewrite here.
+MODULE = f"{__package__ or 'widget_sdf.sdm'}.cli"
+
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog=SCRIPT, description="Build the widget as a .sdm")
@@ -114,7 +121,7 @@ def main(argv: list[str] | None = None) -> int:
 
     # Record the arguments ACTUALLY used, not sys.argv: main() is called
     # in-process by the tests, where sys.argv is pytest's command line.
-    recorded = [SCRIPT] + (list(argv) if argv is not None else sys.argv[1:])
+    recorded = [MODULE] + (list(argv) if argv is not None else sys.argv[1:])
     path = save_sdm(
         build_widget_part(params, name=args.name),
         args.name,
