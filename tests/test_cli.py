@@ -231,3 +231,20 @@ def test_an_equals_form_out_is_dropped_too(tmp_path):
     assert main([f"--out={out}"]) == 0
     gen = json.loads(out.read_text())["metadata"]["generator"]
     assert gen["argv"] == ["uv", "run", "--frozen", SCRIPT]
+
+
+def test_the_build_turns_on_the_compile_cache_when_sdm_core_has_it(tmp_path, monkeypatch):
+    """With sdm-core's `enable_compile_cache` the build calls it once with the package name;
+    without it (an older sdm-core) the build still runs."""
+    import software_defined_matter
+
+    from widget_sdf.sdm import cli
+
+    calls = []
+    monkeypatch.setattr(
+        software_defined_matter, "enable_compile_cache", calls.append, raising=False
+    )
+    assert cli.main(["--out", str(tmp_path / "a.sdm")]) == 0
+    assert calls == ["widget_sdf"]
+    monkeypatch.delattr(software_defined_matter, "enable_compile_cache", raising=False)
+    assert cli.main(["--out", str(tmp_path / "b.sdm")]) == 0

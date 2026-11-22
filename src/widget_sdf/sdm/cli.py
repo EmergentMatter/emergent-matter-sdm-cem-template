@@ -47,7 +47,21 @@ def _coerce(field_name: str, raw: str) -> bool | int | float | str:
 SCRIPT = "widget-build"
 
 
+def _enable_compile_cache() -> None:
+    """Keep JAX's compiled functions on disk between builds, through sdm-core's
+    `enable_compile_cache` (``~/.cache/<package>/jax``; ``SDM_JAX_CACHE`` overrides, ``0``
+    disables). A viewer replays the build on every slider release, and a repeat build then
+    loads its compiled geometry instead of compiling it again. A no-op with an sdm-core that
+    predates the helper."""
+    import software_defined_matter
+
+    enable = getattr(software_defined_matter, "enable_compile_cache", None)
+    if enable is not None:
+        enable((__package__ or "cem").split(".")[0])
+
+
 def main(argv: list[str] | None = None) -> int:
+    _enable_compile_cache()
     ap = argparse.ArgumentParser(prog=SCRIPT, description="Build the widget as a .sdm")
     ap.add_argument("--out", required=True, type=Path, help="output .sdm path")
     ap.add_argument(
