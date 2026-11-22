@@ -2,19 +2,23 @@
 
 <!-- towncrier release notes start -->
 
+## 1.1.3 (2026-11-22)
+
+### Patch
+
+- The recorded generator and `scripts/check_contract.py` now run `uv run python -m <module>.sdm.cli` instead of the `<name>-build` console script, so a renamed project builds and passes the contract check in a workspace that has the package on its import path but no installed script. `cli.py`, `harness.py` and `check_contract.py` move together; the check still accepts the older script-form record, and the harness maps an older script name to its module.
+
 ## 1.1.2 (2026-11-04)
 
 ### Patch
 
 - The starter part and the bushing example now emit their declared params with `free=True`, so the viewer's Scene panel shows a control for each; before, every project made from the template opened with an empty Scene. `scripts/check_contract.py` now fails on a param that is not free, and `CLAUDE.md` tells the agent to ship changeable params free and to open the built part. (params-ship-free)
 
-
 ## 1.1.1 (2026-11-04)
 
 ### Patch
 
 - `CLAUDE.md` now tells the coding agent how to work where there is no `uv` and no network: run the package CLI and `pytest` directly and install nothing; build only in this project's own package, never a second one; never write a `.sdm` by hand; report a failed build with its output; and leave `git add`, `git commit` and `git config` to the environment when it saves the work. (agent-guidance-hosted)
-
 
 ## 1.1.0 (2026-11-03)
 
@@ -30,7 +34,6 @@
 - Two rename tests no longer spell out the template's own version; they read it from `pyproject.toml`, so a release that bumps the version no longer breaks them. (rename-tests-read-the-version)
 - A .sdm built inside the repo no longer records absolute paths in its generator, so it re-emits on any machine; one built outside the repo records the absolute project root and warns.
 - `scripts/rename.py` now renames the root package in `uv.lock`, so a CEM made from the template passes `uv sync --locked` in its first CI run.
-
 
 ## 1.0.0 (2026-10-03)
 
