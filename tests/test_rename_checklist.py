@@ -21,6 +21,7 @@ from __future__ import annotations
 import dataclasses
 import difflib
 import importlib
+import importlib.util
 import json
 import os
 import re
@@ -365,15 +366,43 @@ def test_the_renamed_cli_still_satisfies_the_tool_contract(tmp_path: Path) -> No
         cli.main(["--out", str(dst / "bad.sdm"), "--set", "definitely_not_a_param=1"])
 
     argv = doc["metadata"]["generator"]["argv"]
-    assert argv[:4] == ["uv", "run", "--frozen", cli.SCRIPT], (
-        f"the recorded generator does not name the renamed script: {argv[:4]}"
+    assert argv[:6] == ["uv", "run", "--frozen", "python", "-m", cli.MODULE], (
+        f"the recorded generator does not name the renamed module: {argv[:6]}"
     )
+    assert f"{NEW_PACKAGE}.sdm.cli" == cli.MODULE
     replayed_out = dst / "replay.sdm"
-    replay = [*argv[4:], "--out", str(replayed_out)]
+    replay = [*argv[6:], "--out", str(replayed_out)]
     assert cli.main(replay) == 0, "the recorded generator command does not re-run after the rename"
     before = {k: v["value"] for k, v in doc["params"].items()}
     after = {k: v["value"] for k, v in json.loads(replayed_out.read_text())["params"].items()}
     assert before == after, "replaying the recorded command changed the document after the rename"
+
+
+def test_the_renamed_project_builds_by_module_with_nothing_installed(tmp_path: Path) -> None:
+    """A workspace runs the project on a shared interpreter with the package on
+    `PYTHONPATH` and no console script installed. The command the contract check
+    and the recorded generator use is the module form, so it must build there,
+    and the check must name the renamed module."""
+    dst, _parameters, _assembly, cli = _renamed_copy(tmp_path)
+    out = dst / "output" / "part.sdm"
+    env = {**os.environ, "PYTHONPATH": str(dst / "src")}
+    ran = subprocess.run(
+        [sys.executable, "-m", f"{NEW_PACKAGE}.sdm.cli", "--out", str(out)],
+        cwd=dst,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    assert ran.returncode == 0, ran.stderr
+    assert out.is_file()
+
+    spec = importlib.util.spec_from_file_location(
+        "renamed_check_contract", dst / "scripts" / "check_contract.py"
+    )
+    assert spec and spec.loader
+    contract = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(contract)
+    assert contract.MODULE == cli.MODULE == f"{NEW_PACKAGE}.sdm.cli"
 
 
 def _widget_leftovers(tree: Path) -> tuple[int, list[str]]:
@@ -424,7 +453,8 @@ def test_the_readme_is_replaced_by_the_projects_own(tmp_path: Path) -> None:
     assert readme.startswith("# gear_box\n")
     assert "Made from the Emergent Matter CEM template." in readme
     assert "PYTHONPATH=src python -m gear_box_sdf.sdm.cli --out output/part.sdm" in readme
-    assert "uv run gear_box-build" in readme
+    assert "uv run python -m gear_box_sdf.sdm.cli --out output/part.sdm" in readme
+    assert "gear_box-build" in readme
     assert "uv run pytest" in readme and "python -m pytest" in readme
     assert "## Tests" in readme, "ci.yml points at the README's Tests section"
     assert "CLAUDE.md" in readme and "docs/building-a-cem.md" in readme
@@ -480,9 +510,9 @@ def test_an_offline_rename_leaves_a_working_cem_whose_own_tests_pass(renamed_bas
     assert not (renamed_base / "tests" / "test_rename_checklist.py").exists()
 
 
-def _leads_with_uv(text: str, script: str, package: str) -> bool:
+def _leads_with_uv(text: str, package: str) -> bool:
     """The documented build lines are both present and `uv run` comes first."""
-    uv_line = f"uv run {script} --out"
+    uv_line = f"uv run python -m {package}.sdm.cli --out"
     fallback = f"PYTHONPATH=src python -m {package}.sdm.cli --out"
     return uv_line in text and fallback in text and text.index(uv_line) < text.index(fallback)
 
@@ -490,7 +520,7 @@ def _leads_with_uv(text: str, script: str, package: str) -> bool:
 def test_the_documented_build_lines_lead_with_uv_and_the_script_is_real(
     renamed_base: Path,
 ) -> None:
-    """What this proves: CLAUDE.md and the README both give `uv run <script>`
+    """What this proves: CLAUDE.md and the README both give `uv run python -m <module>`
     first and the `PYTHONPATH=src python -m` form as the fallback, and
     `<script>` is a real `[project.scripts]` entry of the renamed package's CLI.
     It does not run `uv` (that needs an index)."""
@@ -498,15 +528,15 @@ def test_the_documented_build_lines_lead_with_uv_and_the_script_is_real(
     assert scripts == {f"{THING}-build": f"{NEW_PACKAGE}.sdm.cli:main"}
     for name in ("CLAUDE.md", "README.md"):
         text = (renamed_base / name).read_text()
-        assert _leads_with_uv(text, f"{THING}-build", NEW_PACKAGE), name
+        assert _leads_with_uv(text, NEW_PACKAGE), name
 
 
 def test_the_ordering_check_can_fail() -> None:
-    uv_line = "uv run thing-build --out"
+    uv_line = "uv run python -m thing_sdf.sdm.cli --out"
     fallback = "PYTHONPATH=src python -m thing_sdf.sdm.cli --out"
-    assert _leads_with_uv(f"{uv_line} x\n{fallback} y", "thing-build", "thing_sdf")
-    assert not _leads_with_uv(f"{fallback} y\n{uv_line} x", "thing-build", "thing_sdf")
-    assert not _leads_with_uv(f"{uv_line} x", "thing-build", "thing_sdf")
+    assert _leads_with_uv(f"{uv_line} x\n{fallback} y", "thing_sdf")
+    assert not _leads_with_uv(f"{fallback} y\n{uv_line} x", "thing_sdf")
+    assert not _leads_with_uv(f"{uv_line} x", "thing_sdf")
 
 
 def test_the_fallback_build_line_runs_without_uv_on_the_path(renamed_base: Path) -> None:
@@ -1241,7 +1271,7 @@ def test_the_script_prints_where_to_go_next(tmp_path: Path) -> None:
 # ── the guidance the coding agent reads ───────────────────────────────────
 
 
-def _agent_rules_missing(text: str, package: str, script: str) -> list[str]:
+def _agent_rules_missing(text: str, package: str) -> list[str]:
     """The rules `CLAUDE.md` must carry for an agent that has no `uv` and no
     network, with the renamed names filled in. Returns the ones it lacks."""
     flat = " ".join(text.split())
@@ -1250,7 +1280,7 @@ def _agent_rules_missing(text: str, package: str, script: str) -> list[str]:
             f"this project's own package, the only directory under `src/`: `src/{package}/`"
         ),
         "no second package": "Never create a second package under `src/`",
-        "build into output": f"uv run {script} --out output/part.sdm",
+        "build into output": f"uv run python -m {package}.sdm.cli --out output/part.sdm",
         "direct fallback": f"PYTHONPATH=src python -m {package}.sdm.cli --out output/part.sdm",
         "no uv, deps installed": (
             "If `uv` is not on the machine, the dependencies are already installed"
@@ -1273,25 +1303,25 @@ def test_a_renamed_claude_md_carries_the_agent_rules_with_the_new_names(
 ) -> None:
     text = (renamed_base / "CLAUDE.md").read_text()
 
-    assert _agent_rules_missing(text, NEW_PACKAGE, f"{THING}-build") == []
+    assert _agent_rules_missing(text, NEW_PACKAGE) == []
     assert "widget" not in text.lower()
 
 
 def test_the_agent_rules_check_can_fail(renamed_base: Path) -> None:
     text = (renamed_base / "CLAUDE.md").read_text()
 
-    assert _agent_rules_missing(text, "other_sdf", "other-build") != []
+    assert _agent_rules_missing(text, "other_sdf") != []
     without = text.replace("`git add`, `git commit` or `git config`", "git")
-    assert _agent_rules_missing(without, NEW_PACKAGE, f"{THING}-build") == ["no git commands"]
+    assert _agent_rules_missing(without, NEW_PACKAGE) == ["no git commands"]
     # The template's own text names the template's package, not the renamed one.
     stale = (ROOT / "CLAUDE.md").read_text()
-    assert "own package" in _agent_rules_missing(stale, NEW_PACKAGE, f"{THING}-build")
+    assert "own package" in _agent_rules_missing(stale, NEW_PACKAGE)
 
 
 def test_the_template_claude_md_carries_the_same_rules_under_the_template_names() -> None:
     text = (ROOT / "CLAUDE.md").read_text()
 
-    assert _agent_rules_missing(text, OLD_PACKAGE, "widget-build") == []
+    assert _agent_rules_missing(text, OLD_PACKAGE) == []
 
 
 def _bare_pytest_lines(text: str) -> list[int]:

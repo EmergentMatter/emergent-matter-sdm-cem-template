@@ -16,7 +16,9 @@ from pathlib import Path, PureWindowsPath
 import pytest
 
 from widget_sdf.parameters import WidgetParameters
-from widget_sdf.sdm.cli import SCRIPT, _coerce, main
+from widget_sdf.sdm.cli import MODULE, _coerce, main
+
+LAUNCH = ["uv", "run", "--frozen", "python", "-m", MODULE]
 
 
 def test_out_and_set_are_both_accepted(tmp_path):
@@ -130,7 +132,7 @@ def test_the_recorded_generator_is_idempotent(tmp_path):
     assert main(["--out", str(out), "--set", "d_edge_radius=4"]) == 0
     argv = json.loads(out.read_text())["metadata"]["generator"]["argv"]
     assert not (set(argv) & NON_REPLAYABLE_FLAGS), argv
-    assert argv[:4] == ["uv", "run", "--frozen", SCRIPT], "the command must still be re-runnable"
+    assert argv[:6] == LAUNCH, "the command must still be re-runnable"
 
 
 def test_rebuilding_from_the_recorded_command_reproduces_the_document(tmp_path):
@@ -143,7 +145,7 @@ def test_rebuilding_from_the_recorded_command_reproduces_the_document(tmp_path):
     argv = doc["metadata"]["generator"]["argv"]
     second = tmp_path / "b.sdm"
     # What a re-emit does: the recorded command with its own --out appended.
-    assert main([*argv[4:], "--out", str(second)]) == 0
+    assert main([*argv[6:], "--out", str(second)]) == 0
 
     after = json.loads(second.read_text())["params"]
     for k, d_v in before.items():
@@ -164,7 +166,7 @@ def test_the_recorded_generator_names_no_absolute_path(tmp_path):
     into the builder's venv fails there with 'authoring command not found',
     and the engine appends its own --out, so the recorded one is dropped."""
     gen = _generator(tmp_path, "--set", "d_edge_radius=4")
-    assert gen["argv"] == ["uv", "run", "--frozen", SCRIPT, "--set", "d_edge_radius=4"]
+    assert gen["argv"] == [*LAUNCH, "--set", "d_edge_radius=4"]
     for arg in gen["argv"]:
         assert not Path(arg).is_absolute()
         assert not PureWindowsPath(arg).is_absolute()
@@ -192,8 +194,8 @@ def test_the_recorded_cwd_is_relative_to_the_sdm(repo):
 
 
 def test_the_recorded_cwd_is_the_project_not_the_process_directory(repo, monkeypatch):
-    """`uv run --project <repo> widget-build` starts anywhere. Recording that
-    directory makes the re-emit fail with `Failed to spawn: widget-build`."""
+    """`uv run --project <repo> python -m widget_sdf.sdm.cli` starts anywhere.
+    Recording that directory makes the re-emit fail with `Failed to spawn`."""
     elsewhere = repo.parent / "elsewhere"
     elsewhere.mkdir()
     monkeypatch.chdir(elsewhere)
@@ -230,4 +232,4 @@ def test_an_equals_form_out_is_dropped_too(tmp_path):
     out = tmp_path / "p.sdm"
     assert main([f"--out={out}"]) == 0
     gen = json.loads(out.read_text())["metadata"]["generator"]
-    assert gen["argv"] == ["uv", "run", "--frozen", SCRIPT]
+    assert gen["argv"] == LAUNCH

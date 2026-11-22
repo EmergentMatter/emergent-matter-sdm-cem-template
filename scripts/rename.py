@@ -217,8 +217,11 @@ If anything goes wrong, `python3 scripts/doctor.py` prints the fix.
 ## Build
 
 ```bash
-uv run {script} --out output/part.sdm --set <name>=<value>
+uv run python -m {package}.sdm.cli --out output/part.sdm --set <name>=<value>
 ```
+
+The module form works anywhere the package is importable. `{script}` is the same
+CLI as a console script, installed by a local `uv sync`.
 
 `<name>` is a parameter declared in `cem.toml`. In an environment without
 `uv`, such as a prebuilt image with the dependencies already installed, run

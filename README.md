@@ -70,7 +70,8 @@ have to work *before* the environment exists.
 Then, in this order:
 
 1. **Rename the template to your CEM: `python3 scripts/rename.py <thing>`.**
-   Renames `src/widget_sdf/` and the console script `widget-build`, fixes
+   Renames `src/widget_sdf/` and the console script `widget-build` (the recorded generator and
+   `check_contract.py` run the module, not the script), fixes
    every import and manifest reference that names either, renames the
    parameters class and the part builder, sets `cem.toml`'s `[cem].name` and
    the CLI's default `--name` to `<thing>`, renames the repo slug everywhere

@@ -10,9 +10,11 @@ The record is PORTABLE: no absolute path, and `cwd` is this project's root
 relative to the `.sdm` (the engine resolves it against the file), whatever
 directory the build was started from. A `.sdm` is committed and shared, so a
 path into one machine's venv fails with "authoring command not found" on
-every other machine. The command is `uv run --frozen <script>`, which finds
-the project's own venv from `cwd` and runs the script from its locked
-dependencies.
+every other machine. The command is `uv run --frozen python -m <module>`, which
+finds the project's own venv from `cwd` and runs the CLI module from its locked
+dependencies. The module form, not the console script, because a workspace
+that runs `uv run` against a shared environment has the package on its import
+path but no console script for it.
 
 Only a `.sdm` inside the project can be portable. One written elsewhere (or on
 another Windows drive) records the absolute project root, re-emits only on
@@ -101,12 +103,18 @@ def _without_out(args: list) -> list:
 def portable_generator_argv(argv: list) -> list:
     """The command that rebuilds this document, with no machine in it.
 
-    `argv[0]` is whatever launched the build, usually the absolute path of the
-    console script inside one developer's venv. Only its name survives, and
-    `uv run` finds the script again from the project.
+    `argv[0]` is the dotted name of the CLI module (`widget_sdf.sdm.cli`), never
+    a path into one developer's venv. `uv run` finds the project from `cwd` and
+    runs the module with the project's interpreter.
     """
-    script = Path(str(argv[0])).stem
-    return [*GENERATOR_LAUNCHER, script, *_without_out(_replayable_argv(list(argv[1:])))]
+    module = str(argv[0])
+    return [
+        *GENERATOR_LAUNCHER,
+        "python",
+        "-m",
+        module,
+        *_without_out(_replayable_argv(list(argv[1:]))),
+    ]
 
 
 def _recorded_cwd(out: Path) -> str:

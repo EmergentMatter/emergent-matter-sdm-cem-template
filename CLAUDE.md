@@ -49,7 +49,10 @@ Every part in this repo is built through the CEM.
   write a build script beside them: the build command and Regenerate both use
   this package.
 - Build with the package's CLI, into `output/`:
-  `uv run widget-build --out output/part.sdm --set <name>=<value>`.
+  `uv run python -m widget_sdf.sdm.cli --out output/part.sdm --set <name>=<value>`.
+  Use the module form, not the `widget-build` console script: the module runs
+  wherever the package is importable, and the script exists only after a local
+  `uv sync`, so it is missing in a workspace that shares one environment.
 - If `uv` is not on the machine, the dependencies are already installed. Run
   the same CLI directly:
   `PYTHONPATH=src python -m widget_sdf.sdm.cli --out output/part.sdm --set <name>=<value>`

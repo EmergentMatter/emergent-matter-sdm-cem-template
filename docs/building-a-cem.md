@@ -78,7 +78,7 @@ hope the generator reads its own output. `harness.py` stamps the declaration
 and `check_contract.py` fails without it.
 
 `harness.py` stamps `metadata.generator` with the command that produced the
-file, as `uv run --frozen <script> ...` with a `cwd` relative to the `.sdm`, so
+file, as `uv run --frozen python -m <module> ...` with a `cwd` relative to the `.sdm`, so
 the file re-emits on any machine. Without it the `.sdm` can be rendered and never re-derived.
 This describes a local machine, where `uv` is how the CEM runs. Where there is
 no `uv` and the dependencies are already installed, run the package CLI with

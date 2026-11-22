@@ -1,0 +1,1 @@
+The recorded generator and `scripts/check_contract.py` now run `uv run python -m <module>.sdm.cli` instead of the `<name>-build` console script, so a renamed project builds and passes the contract check in a workspace that has the package on its import path but no installed script.

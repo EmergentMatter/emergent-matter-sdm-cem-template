@@ -78,7 +78,9 @@ def manifest() -> dict:
 
 def run(args: list[str]) -> subprocess.CompletedProcess:
     """Invoke the CEM's entry point the way a tool would."""
-    return subprocess.run(["uv", "run", SCRIPT, *args], cwd=ROOT, capture_output=True, text=True)
+    return subprocess.run(
+        ["uv", "run", "python", "-m", MODULE, *args], cwd=ROOT, capture_output=True, text=True
+    )
 
 
 def _is_absolute(s: str) -> bool:
@@ -86,20 +88,22 @@ def _is_absolute(s: str) -> bool:
     return Path(s).is_absolute() or PureWindowsPath(s).is_absolute()
 
 
-def entry_script() -> str:
-    """The console script this CEM installs, from pyproject.
+def entry_module() -> str:
+    """The CLI module this CEM's first console script points at, from pyproject.
 
-    Read rather than hard-coded so this file copies verbatim into any CEM,
-    which is the whole point of it.
+    The check runs `python -m <module>`, not the console script: a script exists
+    only where the project is installed, and a workspace that shares one
+    environment (and sets `PYTHONPATH` instead) has none. Read rather than
+    hard-coded so this file copies verbatim into any CEM.
     """
     with (ROOT / "pyproject.toml").open("rb") as fh:
         scripts = tomllib.load(fh).get("project", {}).get("scripts", {})
     if not scripts:
         raise SystemExit("pyproject declares no [project.scripts]; a tool has nothing to call")
-    return next(iter(scripts))
+    return next(iter(scripts.values())).split(":", 1)[0]
 
 
-SCRIPT = entry_script()
+MODULE = entry_module()
 
 
 #: Roles that configure the toolchain or feed a check rather than the design,
@@ -282,11 +286,11 @@ def _checks(tmp: Path) -> int:
         "the recorded working directory, read from the .sdm, is this repo",
     )
 
-    launcher = ["uv", "run", "--frozen"]
-    replay = recorded[len(launcher) + 1 :] if recorded[: len(launcher)] == launcher else None
+    launcher = ["uv", "run", "--frozen", "python", "-m", MODULE]
+    replay = recorded[len(launcher) :] if recorded[: len(launcher)] == launcher else None
     check(
-        replay is not None and recorded[len(launcher)] == SCRIPT,
-        f"the recorded command is `{' '.join([*launcher, SCRIPT])}`",
+        replay is not None,
+        f"the recorded command is `{' '.join(launcher)}`",
         "" if replay is not None else f"records {recorded[:4]}",
     )
     if replay is not None:
