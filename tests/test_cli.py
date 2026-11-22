@@ -233,3 +233,23 @@ def test_an_equals_form_out_is_dropped_too(tmp_path):
     assert main([f"--out={out}"]) == 0
     gen = json.loads(out.read_text())["metadata"]["generator"]
     assert gen["argv"] == LAUNCH
+
+
+def test_a_script_name_from_an_older_cli_maps_to_the_module():
+    """An older `cli.py` passes the console-script name (or its path) as argv[0]."""
+    from widget_sdf.sdm.harness import portable_generator_argv
+
+    assert portable_generator_argv(["/x/venv/bin/widget-build", "--set", "a=1"]) == [
+        *LAUNCH,
+        "--set",
+        "a=1",
+    ]
+    assert portable_generator_argv(["widget-build"]) == LAUNCH
+    assert portable_generator_argv([MODULE, "--out", "o.sdm"]) == LAUNCH
+    # a name no script maps keeps the older script form rather than inventing a module
+    assert portable_generator_argv(["unknown-build"])[:4] == [
+        "uv",
+        "run",
+        "--frozen",
+        "unknown-build",
+    ]

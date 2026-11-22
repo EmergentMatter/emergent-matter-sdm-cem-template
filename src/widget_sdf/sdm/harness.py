@@ -27,7 +27,9 @@ The `/reemit` contract is `--out` AND `--set`. A CEM whose CLI takes only
 from __future__ import annotations
 
 import os
+import re
 import sys
+import tomllib
 from datetime import date
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -100,6 +102,24 @@ def _without_out(args: list) -> list:
     return kept
 
 
+_DOTTED = re.compile(r"[A-Za-z_]\w*(\.[A-Za-z_]\w*)+")
+
+
+def _module_for(first: str) -> str | None:
+    """The CLI module for `argv[0]`: itself when it is a dotted module name,
+    else the module the `[project.scripts]` entry of that name points at (a
+    console-script path or name, as an older `cli.py` passes), else None."""
+    if _DOTTED.fullmatch(first):
+        return first
+    try:
+        with (PROJECT_ROOT / "pyproject.toml").open("rb") as fh:
+            scripts = tomllib.load(fh).get("project", {}).get("scripts", {})
+    except (OSError, tomllib.TOMLDecodeError):
+        return None
+    target = scripts.get(Path(first).stem) or scripts.get(Path(first).name)
+    return str(target).split(":", 1)[0] if target else None
+
+
 def portable_generator_argv(argv: list) -> list:
     """The command that rebuilds this document, with no machine in it.
 
@@ -107,7 +127,10 @@ def portable_generator_argv(argv: list) -> list:
     a path into one developer's venv. `uv run` finds the project from `cwd` and
     runs the module with the project's interpreter.
     """
-    module = str(argv[0])
+    module = _module_for(str(argv[0]))
+    if module is None:  # a script name nothing maps: keep the older script form
+        script = Path(str(argv[0])).stem
+        return [*GENERATOR_LAUNCHER, script, *_without_out(_replayable_argv(list(argv[1:])))]
     return [
         *GENERATOR_LAUNCHER,
         "python",
